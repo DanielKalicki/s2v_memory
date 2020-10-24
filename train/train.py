@@ -110,9 +110,10 @@ data_loader_test = torch.utils.data.DataLoader(
     dataset_test, batch_size=config['batch_size'],
     shuffle=False, num_workers=0)
 
-optimizer = optim.Adam(model.parameters(), lr=config['training']['lr'])
-lr_lambda = lambda epoch: 0.95 ** epoch
-scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+if config['training']['optimizer'] == "Adam":
+    optimizer = optim.Adam(model.parameters(), lr=config['training']['lr'])
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config['training']['lr_step'], 
+                                                       gamma=config['training']['lr_gamma'])
 test_loss = 1e6
 for epoch in range(start_epoch, config['training']['epochs'] + 1):
     train(model, device, data_loader_train, optimizer, epoch, None)
