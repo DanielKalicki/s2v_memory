@@ -6,6 +6,7 @@ default_config = {
     'max_sent_len': 64,
     'word_edim': 1024,
     's2v_dim': 2048,
+    'use_memory': True,
     'name': '',
     'restore_name': '',
 
@@ -26,6 +27,17 @@ default_config = {
             },
             'pooling_activation': None,  # activation function used before pool
             'pooling_function': 'mean',  # ['mean', 'max', 'l2', 'mean_max']
+        }
+    },
+
+    'sentence_mlm': {
+        'input_drop': 0.0,
+        'transformer': {
+            'word_dim': 1024,
+            'num_layers': 4,
+            'num_heads': 16,
+            'ffn_dim': 4*1024,
+            'dropout': 0.0
         }
     },
 
@@ -51,12 +63,13 @@ configs = []
 for i in range(100):
     configs.append(copy.deepcopy(default_config))
 
-# -----------------------------------------------------------------------------
 i = 0
-for _ in range(0, 4):
+# -----------------------------------------------------------------------------
+# i = 0
+for _ in range(0, 2):
     configs[i]['sentence_encoder']['input_drop'] = 0.0
     configs[i]['sentence_encoder']['transformer']['num_layers'] = 4
-    configs[i]['sentence_encoder']['transformer']['dropout'] = 0.1
+    configs[i]['sentence_encoder']['transformer']['dropout'] = 0.0
     configs[i]['sentence_encoder']['transformer']['ffn_dim'] = 256
     configs[i]['sentence_encoder']['transformer']['num_heads'] = 16
 
@@ -64,24 +77,38 @@ for _ in range(0, 4):
     configs[i]['sentence_encoder']['pooling']['mha']['num_heads'] = 128
     configs[i]['sentence_encoder']['pooling']['mha']['attention_dropout'] = 0.0
 
-    configs[i]['s2v_dim'] = 2*1024
-    # configs[i]['classifier_network']['dropout'] = 0.2
+    configs[i]['sentence_mlm']['input_drop'] = 0.0
+    configs[i]['sentence_mlm']['transformer']['num_layers'] = 4
+    configs[i]['sentence_mlm']['transformer']['dropout'] = 0.0
+    configs[i]['sentence_mlm']['transformer']['ffn_dim'] = 256
+    configs[i]['sentence_mlm']['transformer']['num_heads'] = 16
+
+    configs[i]['s2v_dim'] = 1024
     configs[i]['max_sent_len'] = 32
     configs[i]['batch_size'] = 24
+    if i == 0:
+        configs[i]['use_memory'] = True
+    else:
+        configs[i]['use_memory'] = False
 
     configs[i]['training']['optimizer'] = 'Adam'
-    # configs[i]['training']['label_smoothing'] = 0.2
     # configs[i]['training']['clipnorm'] = 1.0
     configs[i]['training']['lr'] = 8e-5
-    configs[i]['training']['lr_step'] = 4
-    configs[i]['training']['lr_gamma'] = 0.95
+    configs[i]['training']['lr_step'] = 10
+    configs[i]['training']['lr_gamma'] = 0.5
+    configs[i]['training']['epochs'] = 100
 
     configs[i]['name'] = 'b' + str(configs[i]['batch_size']) + 'sL' + str(configs[i]['max_sent_len']) + \
-        '_' + configs[i]['training']['optimizer'] + 'lr' + str(configs[i]['training']['lr']) + 's' + str(configs[i]['training']['lr_step']) + 'g' + str(configs[i]['trainig']['lr_gamma']) + \
-        '_gTr' + str(configs[i]['sentence_encoder']['transformer']['num_layers']) + 'dr' + str(configs[i]['transformer']['dropout']) + \
-        '_mha' + str(configs[i]['sentence_encoder']['transformer']['num_heads']) + \
-        '_ffn' + str(configs[i]['sentence_encoder']['transformer']['ffn_dim']) + \
-        '_pool' + configs[i]['sentence_encoder']['pooling']['pooling_function'] + 'dr' + str(configs[i]['sentence_encoder']['pooling']['mha']['attention_dropout']) + \
-        '_s2v' + str(configs[i]['s2v_dim']) + \
+        '_' + configs[i]['training']['optimizer'] + 'lr' + str(configs[i]['training']['lr']) + 's' + str(configs[i]['training']['lr_step']) + 'g' + str(configs[i]['training']['lr_gamma']) + \
+        '.pool' + configs[i]['sentence_encoder']['pooling']['pooling_function'] + \
+        '.s2v' + str(configs[i]['s2v_dim']) + \
+        '_mTr' + str(configs[i]['sentence_mlm']['transformer']['num_layers']) + 'idr' + str(configs[i]['sentence_mlm']['input_drop']) + \
+        '.mha' + str(configs[i]['sentence_mlm']['transformer']['num_heads']) + \
+        '.ffn' + str(configs[i]['sentence_mlm']['transformer']['ffn_dim']) + \
+        '_mem' + str(configs[i]['use_memory']) + '.onlyMaskLoss' + \
         '_' + str(i)
     i += 1
+
+        # '_gTr' + str(configs[i]['sentence_encoder']['transformer']['num_layers']) + \
+        # '.mha' + str(configs[i]['sentence_encoder']['transformer']['num_heads']) + \
+        # '.ffn' + str(configs[i]['sentence_encoder']['transformer']['ffn_dim']) + \
