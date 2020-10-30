@@ -120,8 +120,8 @@ class GatedTransformerEncoderLayer(nn.Module):
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
 
-        self.gate1 = nn.Linear(d_model*2, d_model)
-        self.gate2 = nn.Linear(d_model*2, d_model)
+        # self.gate1 = nn.Linear(d_model*2, d_model)
+        # self.gate2 = nn.Linear(d_model*2, d_model)
 
     def __setstate__(self, state):
         if 'activation' not in state:
@@ -133,46 +133,48 @@ class GatedTransformerEncoderLayer(nn.Module):
         src2 = self.self_attn(src_, src_, src_, attn_mask=src_mask,
                               key_padding_mask=src_key_padding_mask)[0]
         src2 = self.linear_mha(src2)
-        g2 = self.gate1(torch.cat((src_, src2), dim=2))
-        g2_shape = g2.shape
-        g2 = g2.reshape((g2_shape[0], g2_shape[1], 128, 8))
-        g2 = torch.softmax(g2, dim=-1)
-        g2 = g2.reshape((g2_shape[0], g2_shape[1], g2_shape[2]))
-        src2 = src2 * g2
+        # g2 = self.gate1(torch.cat((src_, src2), dim=2))
+        # g2_shape = g2.shape
+        # g2 = g2.reshape((g2_shape[0], g2_shape[1], 128, 8))
+        # g2 = torch.softmax(g2, dim=-1)
+        # g2 = g2.reshape((g2_shape[0], g2_shape[1], g2_shape[2]))
+        # src2 = src2 * g2
         src = src + self.dropout1(src2)
 
         src_ = self.norm2(src)
         src2 = self.linear2(self.dropout(self.activation(self.linear1(src_))))
-        g2 = self.gate2(torch.cat((src_, src2), dim=2))
-        g2_shape = g2.shape
-        g2 = g2.reshape((g2_shape[0], g2_shape[1], 128, 8))
-        g2 = torch.softmax(g2, dim=-1)
-        g2 = g2.reshape((g2_shape[0], g2_shape[1], g2_shape[2]))
-        src2 = src2 * g2
+        # g2 = self.gate2(torch.cat((src_, src2), dim=2))
+        # g2_shape = g2.shape
+        # g2 = g2.reshape((g2_shape[0], g2_shape[1], 128, 8))
+        # g2 = torch.softmax(g2, dim=-1)
+        # g2 = g2.reshape((g2_shape[0], g2_shape[1], g2_shape[2]))
+        # src2 = src2 * g2
         src = src + self.dropout2(src2)
 
         return src
 
 class MemoryTransformerEncoderLayer(nn.Module):
     # based on https://pytorch.org/docs/stable/_modules/torch/nn/modules/transformer.html#TransformerEncoderLayer
-    def __init__(self, d_model, nhead, d_memory, dim_feedforward=2048, dropout=0.1, activation="relu"):
+    def __init__(self, d_model, nhead, d_memory, dim_feedforward=2048, dropout=0.1, activation="relu", memory_position=""):
         super(MemoryTransformerEncoderLayer, self).__init__()
         self.d_model = d_model
+        self.memory_position = memory_position
 
         # self.linear1 = nn.Linear(d_model, dim_feedforward)
-        self.linear1 = nn.Linear(d_model+d_memory, dim_feedforward)
+        self.linear1 = nn.Linear(d_model+(d_memory if 'ffn input' in memory_position else 0), dim_feedforward)
         self.activation = _get_activation_fn(activation)
         self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(dim_feedforward, d_model)
+        self.linear2 = nn.Linear(dim_feedforward+(d_memory if 'ffn hidden' in memory_position else 0), d_model)
 
-        self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, 
-                                            out_dim_mult=1.0)
-        self.linear_mha = nn.Linear(d_model, d_model)
+        self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, out_dim_mult=1.0)
+        self.linear_mha = nn.Linear(d_model+(d_memory if 'mha hidden' in memory_position else 0), d_model)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
+
+        self.mem_gate = nn.Linear(d_model+d_memory, d_memory)
 
     def __setstate__(self, state):
         if 'activation' not in state:
@@ -183,18 +185,27 @@ class MemoryTransformerEncoderLayer(nn.Module):
         mem = src[:, :, self.d_model:]
         src = src[:, :, :self.d_model]
 
+        mem = mem*torch.tanh(torch.abs(self.mem_gate(torch.cat([src, mem], dim=2))))
+
         # src_ = self.norm1(src)
         src_ = src
         src2 = self.self_attn(src_, src_, src_, attn_mask=src_mask,
                               key_padding_mask=src_key_padding_mask)[0]
+        if 'mha hidden' in self.memory_position:
+            src2 = torch.cat([src2, mem], dim=2)
         src2 = self.linear_mha(src2)
         src = src + self.dropout1(src2)
         src = self.norm1(src)
 
         # src_ = self.norm2(src)
         src_ = src
-        src_ = torch.cat([src_, mem], dim=2)
-        src2 = self.linear2(self.dropout(self.activation(self.linear1(src_))))
+        if 'ffn input' in self.memory_position:
+            src_ = torch.cat([src_, mem], dim=2)
+        src2 = self.dropout(self.activation(self.linear1(src_)))
+        if 'ffn hidden' in self.memory_position:
+            src2 = torch.cat([src2, mem], dim=2)
+        src2 = self.linear2(src2)
+        # src2 = self.linear2(self.dropout(self.activation(self.linear1(src_))))
         src = src + self.dropout2(src2)
         src = self.norm2(src)
 
@@ -218,12 +229,12 @@ class SentenceEncoder(nn.Module):
         gtr_dim_feedforward = config['sentence_encoder']['transformer']['ffn_dim']
         gtr_drop = config['sentence_encoder']['transformer']['dropout']
 
-        self.mem_norm = nn.LayerNorm(self.word_edim)
+        # self.mem_norm = nn.LayerNorm(self.word_edim)
 
-        mem_encoder_layer = GatedTransformerEncoderLayer(d_model=self.word_edim, nhead=gtr_num_head,
-                                                    dim_feedforward=gtr_dim_feedforward,
-                                                    dropout=gtr_drop, activation="gelu")
-        self.mem_gtr = nn.TransformerEncoder(mem_encoder_layer, num_layers=gtr_num_layers)
+        # mem_encoder_layer = GatedTransformerEncoderLayer(d_model=self.word_edim, nhead=gtr_num_head,
+        #                                             dim_feedforward=gtr_dim_feedforward,
+        #                                             dropout=gtr_drop, activation="gelu")
+        # self.mem_gtr = nn.TransformerEncoder(mem_encoder_layer, num_layers=gtr_num_layers)
 
         # mha pool
         pool_mha_nhead = config['sentence_encoder']['pooling']['mha']['num_heads']
@@ -239,19 +250,21 @@ class SentenceEncoder(nn.Module):
         mtr_num_layers = config['sentence_mlm']['transformer']['num_layers']
         mtr_dim_feedforward = config['sentence_mlm']['transformer']['ffn_dim']
         mtr_drop = config['sentence_mlm']['transformer']['dropout']
+        mtr_mem_pos = config['sentence_mlm']['transformer']['memory_position']
 
         mlm_encoder_layer = MemoryTransformerEncoderLayer(d_model=self.word_edim, nhead=mtr_num_head,
                                                           d_memory=self.s2v_dim,
                                                           dim_feedforward=mtr_dim_feedforward,
-                                                          dropout=mtr_drop, activation="gelu")
+                                                          dropout=mtr_drop, activation="gelu",
+                                                          memory_position=mtr_mem_pos)
         self.mlm_mtr = nn.TransformerEncoder(mlm_encoder_layer, num_layers=mtr_num_layers)
 
     def _emb_sent(self, sent, sent_mask=None):
         sent = self.mem_in_dr(sent)
         sent = sent.permute((1, 0, 2))
 
-        sent = self.mem_gtr(sent, src_key_padding_mask=sent_mask)
-        sent = self.mem_norm(sent)
+        # sent = self.mem_gtr(sent, src_key_padding_mask=sent_mask)
+        # sent = self.mem_norm(sent)
         sent, _ = self.mem_mha_pool(sent, sent, sent, key_padding_mask=sent_mask)
 
         sent = sent.permute((1, 0, 2))
