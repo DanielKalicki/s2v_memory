@@ -294,15 +294,21 @@ class WikiS2vCorrectionBatch(Dataset):
             rnd_sent_idx = random.randint(1, len(batch_data)-1)
         elif self.config['memory_sentence_pos'] == "-1":
             rnd_sent_idx = random.randint(0, len(batch_data)-2)
-        elif (self.config['memory_sentence_pos'] == "rnd") or (self.config['memory_sentence_pos'] == 'maskSent'):
+        elif (self.config['memory_sentence_pos'] == "rnd") or \
+             (self.config['memory_sentence_pos'] == 'maskSent') or \
+             (not self.config['use_memory']):
             rnd_sent_idx = random.randint(0, len(batch_data)-1)
-        elif self.config['memory_sentence_pos'] == "sent0":
+        elif (self.config['memory_sentence_pos'] == "sent0") or \
+             (self.config['memory_sentence_pos'] == 'noise'):
             rnd_sent_idx = 0
 
         sent = batch_data[rnd_sent_idx]['sentence_emb'][0]
         if self.config['use_memory']:
             mem_sentence[0:min(len(sent), self.config['max_sent_len'])] =\
                 torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
+        if self.config['memory_sentence_pos'] == 'noise':
+            mem_sentence = torch.randn_like(mem_sentence)
+
         mem_sentence_mask[0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
 
         # masked sentence
@@ -321,6 +327,11 @@ class WikiS2vCorrectionBatch(Dataset):
             rnd_sent_idx = random.randint(1, len(batch_data)-1)
         elif self.config['memory_sentence_pos'] == 'maskSent':
             rnd_sent_idx = rnd_sent_idx
+        elif self.config['memory_sentence_pos'] == 'noise':
+            rnd_sent_idx = random.randint(0, len(batch_data)-1)
+        
+        if not self.config['use_memory']:
+            rnd_sent_idx = random.randint(0, len(batch_data)-1)
 
         sent = batch_data[rnd_sent_idx]['sentence_emb'][0]
         masked_sentence[0:min(len(sent), self.config['max_sent_len'])] =\

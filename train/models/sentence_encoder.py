@@ -155,18 +155,22 @@ class GatedTransformerEncoderLayer(nn.Module):
 
 class MemoryTransformerEncoderLayer(nn.Module):
     # based on https://pytorch.org/docs/stable/_modules/torch/nn/modules/transformer.html#TransformerEncoderLayer
-    def __init__(self, d_model, nhead, d_memory, dim_feedforward=2048, dropout=0.1, activation="relu", memory_position=""):
+    def __init__(self, d_model, nhead, d_memory, dim_feedforward=2048, dropout=0.1, activation="relu",
+                 memory_position="", hidden_sentence_dropout=0.0):
         super(MemoryTransformerEncoderLayer, self).__init__()
         self.d_model = d_model
         self.memory_position = memory_position
 
         # self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.hsent_drop1 = nn.Dropout(hidden_sentence_dropout)
         self.linear1 = nn.Linear(d_model+(d_memory if 'ffn input' in memory_position else 0), dim_feedforward)
         self.activation = _get_activation_fn(activation)
         self.dropout = nn.Dropout(dropout)
+        self.hsent_drop2 = nn.Dropout(hidden_sentence_dropout)
         self.linear2 = nn.Linear(dim_feedforward+(d_memory if 'ffn hidden' in memory_position else 0), d_model)
 
         self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, out_dim_mult=1.0)
+        self.hsent_drop_mha = nn.Dropout(hidden_sentence_dropout)
         self.linear_mha = nn.Linear(d_model+(d_memory if 'mha hidden' in memory_position else 0), d_model)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
@@ -192,7 +196,7 @@ class MemoryTransformerEncoderLayer(nn.Module):
         src2 = self.self_attn(src_, src_, src_, attn_mask=src_mask,
                               key_padding_mask=src_key_padding_mask)[0]
         if 'mha hidden' in self.memory_position:
-            src2 = torch.cat([src2, mem], dim=2)
+            src2 = torch.cat([self.hsent_drop_mha(src2), mem], dim=2)
         src2 = self.linear_mha(src2)
         src = src + self.dropout1(src2)
         src = self.norm1(src)
@@ -200,10 +204,10 @@ class MemoryTransformerEncoderLayer(nn.Module):
         # src_ = self.norm2(src)
         src_ = src
         if 'ffn input' in self.memory_position:
-            src_ = torch.cat([src_, mem], dim=2)
+            src_ = torch.cat([self.hsent_drop1(src_), mem], dim=2)
         src2 = self.dropout(self.activation(self.linear1(src_)))
         if 'ffn hidden' in self.memory_position:
-            src2 = torch.cat([src2, mem], dim=2)
+            src2 = torch.cat([self.hsent_drop2(src2), mem], dim=2)
         src2 = self.linear2(src2)
         # src2 = self.linear2(self.dropout(self.activation(self.linear1(src_))))
         src = src + self.dropout2(src2)
@@ -251,12 +255,14 @@ class SentenceEncoder(nn.Module):
         mtr_dim_feedforward = config['sentence_mlm']['transformer']['ffn_dim']
         mtr_drop = config['sentence_mlm']['transformer']['dropout']
         mtr_mem_pos = config['sentence_mlm']['transformer']['memory_position']
+        mtr_hsent_drop = config['sentence_mlm']['transformer']['hidden_sentence_drop']
 
         mlm_encoder_layer = MemoryTransformerEncoderLayer(d_model=self.word_edim, nhead=mtr_num_head,
                                                           d_memory=self.s2v_dim,
                                                           dim_feedforward=mtr_dim_feedforward,
                                                           dropout=mtr_drop, activation="gelu",
-                                                          memory_position=mtr_mem_pos)
+                                                          memory_position=mtr_mem_pos,
+                                                          hidden_sentence_dropout=mtr_hsent_drop)
         self.mlm_mtr = nn.TransformerEncoder(mlm_encoder_layer, num_layers=mtr_num_layers)
 
     def _emb_sent(self, sent, sent_mask=None):

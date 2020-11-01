@@ -7,6 +7,7 @@ default_config = {
     'word_edim': 1024,
     's2v_dim': 2048,
     'use_memory': True,
+    'memory_sentence_pos': '',
     'name': '',
     'restore_name': '',
 
@@ -66,7 +67,7 @@ for i in range(100):
 i = 0
 # -----------------------------------------------------------------------------
 # i = 0
-for _ in range(0, 5):
+for _ in range(0, 10):
     configs[i]['sentence_encoder']['input_drop'] = 0.0
     configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
     configs[i]['sentence_encoder']['transformer']['dropout'] = 0.0
@@ -93,14 +94,18 @@ for _ in range(0, 5):
     #     configs[i]['sentence_mlm']['transformer']['memory_position'] = 'mha hidden'
     # elif i == 4:
     #     configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn input, ffn hidden'
+    configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop'] = 0.0
+    if i == 7:
+        configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop'] = 0.3
+    if i == 8:
+        configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop'] = 0.1
 
     configs[i]['s2v_dim'] = 2*1024
     configs[i]['max_sent_len'] = 32
     configs[i]['batch_size'] = 24
-    if i == 0:
-        configs[i]['use_memory'] = True
-        configs[i]['memory_sentence_pos'] = "+1"
-    elif i == 1:
+    configs[i]['use_memory'] = True
+    configs[i]['memory_sentence_pos'] = "+1"
+    if i == 1:
         configs[i]['use_memory'] = True
         configs[i]['memory_sentence_pos'] = "-1"
     elif i == 2:
@@ -112,16 +117,19 @@ for _ in range(0, 5):
     elif i == 4:
         configs[i]['use_memory'] = False
         configs[i]['memory_sentence_pos'] = ""
-    elif i == 4:
+    elif i == 5:
         configs[i]['use_memory'] = True
         configs[i]['memory_sentence_pos'] = "maskSent"
+    elif i == 6:
+        configs[i]['use_memory'] = True
+        configs[i]['memory_sentence_pos'] = "noise"
 
     configs[i]['training']['optimizer'] = 'Adam'
     configs[i]['training']['lr'] = 4e-4
     configs[i]['training']['lr_step'] = 10
     configs[i]['training']['lr_gamma'] = 0.5
     configs[i]['training']['epochs'] = 100
-
+    
     mem_pos = ""
     for mp in configs[i]['sentence_mlm']['transformer']['memory_position'].split(', '):
         try:
@@ -140,8 +148,9 @@ for _ in range(0, 5):
         '_mTr' + str(configs[i]['sentence_mlm']['transformer']['num_layers']) + 'idr' + str(configs[i]['sentence_mlm']['input_drop']) + \
         '.mha' + str(configs[i]['sentence_mlm']['transformer']['num_heads']) + \
         '.ffn' + str(configs[i]['sentence_mlm']['transformer']['ffn_dim']) + \
+        '.hdr' + str(configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop']) + \
         '.postNorm.' + mem_pos + \
-        '.memGateTanh' + \
+        '.mGateTanh' + \
         '_mem' + str(configs[i]['use_memory']) + '=' + configs[i]['memory_sentence_pos'] + \
         '_inMaskW0_v7_normLoss_trDoc10_' + str(i)
     i += 1
