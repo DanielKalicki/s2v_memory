@@ -3,6 +3,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from batchers.wiki_s2v_correction_batch import WikiS2vCorrectionBatch
 from models.sentence_encoder import SentenceEncoder
+from models.sam import SAM
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 import time
@@ -41,12 +42,26 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
         train_loss += pred_loss.detach()
 
         pred_loss.backward(retain_graph=True)
-        optimizer.step()
+        if config['training']['optimizer'] == 'SAM':
+            optimizer.first_step(zero_grad=True)
+
+            model_output = model(sent, mem_sent, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask)
+            sent_pred = model_output['sent']
+
+            sent_pred = torch.nn.functional.normalize(sent_pred, dim=2)
+            label_sent = torch.nn.functional.normalize(label_sent, dim=2)
+            pred_loss = torch.sum(torch.mean(torch.pow(sent_pred - label_sent, 2), dim=2) * \
+                                (1-label_sent_mask.type(torch.cuda.FloatTensor))) / \
+                        torch.sum(1- label_sent_mask.type(torch.cuda.FloatTensor))
+            pred_loss.backward(retain_graph=True)
+            optimizer.second_step(zero_grad=True)
+        else:
+            optimizer.step()
 
         if scheduler:
             scheduler.step()
 
-        pbar.set_description("L" + str(round(float(pred_loss.detach()), 4)))
+        pbar.set_description("L" + str(round(float(pred_loss.detach()*1000), 4)))
         pbar.update(1)
     pbar.close()
     end = time.time()
@@ -110,6 +125,8 @@ data_loader_test = torch.utils.data.DataLoader(
 
 if config['training']['optimizer'] == "Adam":
     optimizer = optim.Adam(model.parameters(), lr=config['training']['lr'])
+if config['training']['optimizer'] == 'SAM':
+    optimizer = SAM(model.parameters(), optim.Adam, lr=config['training']['lr'])
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config['training']['lr_step'],
                                                        gamma=config['training']['lr_gamma'])
 test_loss = 1e6

@@ -61,6 +61,7 @@ class WikiS2vCorrectionBatch(Dataset):
 
         self.batch_files = []
         self.batch_idx = 0
+        self.true_s2v_rate = self.config['training']['memory_true_s2v_initial_rate']
         self._init_batch()
     
     def _get_input_articles_list_from_vital_articles(self):
@@ -203,7 +204,8 @@ class WikiS2vCorrectionBatch(Dataset):
         return sent1_s2v
 
     def _init_batch(self):
-        global batch_train_data, batch_valid_data, batch_full_data, batch_full_mask_data, batch_train_data_size, batch_valid_data_size
+        global batch_train_data, batch_valid_data, batch_full_data, batch_full_mask_data
+        global batch_train_data_size, batch_valid_data_size
         if not self.valid:
             if len(self.batch_files) == 0:
                 for file in os.listdir(self.batch_dir):
@@ -256,6 +258,8 @@ class WikiS2vCorrectionBatch(Dataset):
                 valid_title_weight.append(len(batch_full_data[title]))
 
     def on_epoch_end(self):
+        self.true_s2v_rate *= self.config['training']['memory_true_s2v_gamma']
+        print('true_s2v_rate:', self.true_s2v_rate)
         self._init_batch()
 
     def __len__(self):
@@ -288,19 +292,26 @@ class WikiS2vCorrectionBatch(Dataset):
 
         title = self.get_title_from_idx()
 
+        use_true_s2v = False
+        if (random.random() < self.true_s2v_rate) and (not self.valid):
+            use_true_s2v = True
+
         # memory sentence
         batch_data = batch_full_data[title]
-        if self.config['memory_sentence_pos'] == "+1":
-            rnd_sent_idx = random.randint(1, len(batch_data)-1)
-        elif self.config['memory_sentence_pos'] == "-1":
-            rnd_sent_idx = random.randint(0, len(batch_data)-2)
-        elif (self.config['memory_sentence_pos'] == "rnd") or \
-             (self.config['memory_sentence_pos'] == 'maskSent') or \
-             (not self.config['use_memory']):
+        if use_true_s2v:
             rnd_sent_idx = random.randint(0, len(batch_data)-1)
-        elif (self.config['memory_sentence_pos'] == "sent0") or \
-             (self.config['memory_sentence_pos'] == 'noise'):
-            rnd_sent_idx = 0
+        else:
+            if self.config['memory_sentence_pos'] == "+1":
+                rnd_sent_idx = random.randint(1, len(batch_data)-1)
+            elif self.config['memory_sentence_pos'] == "-1":
+                rnd_sent_idx = random.randint(0, len(batch_data)-2)
+            elif (self.config['memory_sentence_pos'] == "rnd") or \
+                (self.config['memory_sentence_pos'] == 'maskSent') or \
+                (not self.config['use_memory']):
+                rnd_sent_idx = random.randint(0, len(batch_data)-1)
+            elif (self.config['memory_sentence_pos'] == "sent0") or \
+                (self.config['memory_sentence_pos'] == 'noise'):
+                rnd_sent_idx = 0
 
         sent = batch_data[rnd_sent_idx]['sentence_emb'][0]
         if self.config['use_memory']:
@@ -313,22 +324,25 @@ class WikiS2vCorrectionBatch(Dataset):
 
         # masked sentence
         batch_data = batch_full_mask_data[title]
-        if self.config['memory_sentence_pos'] == "+1":
-            rnd_sent_idx = rnd_sent_idx - 1
-        elif self.config['memory_sentence_pos'] == "-1":
-            rnd_sent_idx = rnd_sent_idx + 1
-        elif self.config['memory_sentence_pos'] == "rnd":
-            rnd_sent_idx2 = random.randint(0, len(batch_data)-2)
-            if rnd_sent_idx2 == rnd_sent_idx:
-                rnd_sent_idx = len(batch_data)-1
-            else:
-                rnd_sent_idx = rnd_sent_idx2
-        elif self.config['memory_sentence_pos'] == "sent0":
-            rnd_sent_idx = random.randint(1, len(batch_data)-1)
-        elif self.config['memory_sentence_pos'] == 'maskSent':
-            rnd_sent_idx = rnd_sent_idx
-        elif self.config['memory_sentence_pos'] == 'noise':
-            rnd_sent_idx = random.randint(0, len(batch_data)-1)
+        if use_true_s2v:
+            rnd_sent_idx=rnd_sent_idx
+        else:
+            if self.config['memory_sentence_pos'] == "+1":
+                rnd_sent_idx = rnd_sent_idx - 1
+            elif self.config['memory_sentence_pos'] == "-1":
+                rnd_sent_idx = rnd_sent_idx + 1
+            elif self.config['memory_sentence_pos'] == "rnd":
+                rnd_sent_idx2 = random.randint(0, len(batch_data)-2)
+                if rnd_sent_idx2 == rnd_sent_idx:
+                    rnd_sent_idx = len(batch_data)-1
+                else:
+                    rnd_sent_idx = rnd_sent_idx2
+            elif self.config['memory_sentence_pos'] == "sent0":
+                rnd_sent_idx = random.randint(1, len(batch_data)-1)
+            elif self.config['memory_sentence_pos'] == 'maskSent':
+                rnd_sent_idx = rnd_sent_idx
+            elif self.config['memory_sentence_pos'] == 'noise':
+                rnd_sent_idx = random.randint(0, len(batch_data)-1)
         
         if not self.config['use_memory']:
             rnd_sent_idx = random.randint(0, len(batch_data)-1)
@@ -359,7 +373,8 @@ class WikiS2vCorrectionBatch(Dataset):
             label_sentence_mask[rnd_word] = torch.tensor(0.0)
         # label_sentence_mask[0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
 
-        return masked_sentence, masked_sentence_mask, mem_sentence, mem_sentence_mask, label_sentence, label_sentence_mask
+        return masked_sentence, masked_sentence_mask, mem_sentence, mem_sentence_mask, \
+               label_sentence, label_sentence_mask
 
 def test():
     batcher = WikiS2vCorrectionBatch({
