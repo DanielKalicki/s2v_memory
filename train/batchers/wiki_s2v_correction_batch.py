@@ -217,7 +217,7 @@ class WikiS2vCorrectionBatch(Dataset):
             batch_full_mask_data = {}
             batch_train_data = []
             batch_valid_data = []
-            num_of_files_in_epoch = 10
+            num_of_files_in_epoch = 10*4
             for _ in range(num_of_files_in_epoch):
                 file = self.batch_files[self.batch_idx]
                 data = pickle.load(open(self.batch_dir+file+"_articles_wEmb.pickle", 'rb'))
@@ -256,6 +256,29 @@ class WikiS2vCorrectionBatch(Dataset):
             for title in batch_valid_data:
                 valid_title_list.append(title)
                 valid_title_weight.append(len(batch_full_data[title]))
+            
+            if self.config['use_memory'] and 'closest' in self.config['training']['memory_sentence_pos']:
+                self.find_closest_s2vs()
+
+    def find_closest_s2vs(self):
+        global batch_full_data
+        for title in batch_full_data:
+            s2vs_map = {}
+            for sidx in range(len(batch_full_data[title])):
+                sent_s2v = np.mean(batch_full_data[title][sidx]['sentence_emb'][0], axis=0)
+                s2vs_map[sidx] = sent_s2v
+            for sidx in s2vs_map:
+                best_dist = 1e6
+                best_idx = 0
+                for sidx2 in np.random.randint(0, len(s2vs_map)-1,
+                    size=(min(len(s2vs_map), int(self.config['training']['memory_sentence_pos'].replace('closest', ''))))):
+                # for sidx2 in s2vs_map:
+                    if sidx2 != sidx:
+                        dist = np.sum(np.abs(s2vs_map[sidx]-s2vs_map[sidx2]))
+                        if dist < best_dist:
+                            best_dist = dist
+                            best_idx = sidx2
+                batch_full_data[title][sidx]['closest_s2v'] = best_idx
 
     def on_epoch_end(self):
         self.true_s2v_rate *= self.config['training']['memory_true_s2v_gamma']
@@ -266,7 +289,7 @@ class WikiS2vCorrectionBatch(Dataset):
         if self.valid:
             return int(batch_valid_data_size)
         else:
-            return int(batch_train_data_size)
+            return int(batch_train_data_size//4)
 
     def get_title_from_idx(self):
         global train_title_list, valid_title_list
@@ -301,17 +324,23 @@ class WikiS2vCorrectionBatch(Dataset):
         if use_true_s2v:
             rnd_sent_idx = random.randint(0, len(batch_data)-1)
         else:
-            if self.config['memory_sentence_pos'] == "+1":
+            if self.config['training']['memory_sentence_pos'] == "+1":
                 rnd_sent_idx = random.randint(1, len(batch_data)-1)
-            elif self.config['memory_sentence_pos'] == "-1":
+            elif self.config['training']['memory_sentence_pos'] == "-1":
                 rnd_sent_idx = random.randint(0, len(batch_data)-2)
-            elif (self.config['memory_sentence_pos'] == "rnd") or \
-                (self.config['memory_sentence_pos'] == 'maskSent') or \
-                (not self.config['use_memory']):
+            elif (self.config['training']['memory_sentence_pos'] == "rnd") or \
+                (self.config['training']['memory_sentence_pos'] == 'maskSent'):
                 rnd_sent_idx = random.randint(0, len(batch_data)-1)
-            elif (self.config['memory_sentence_pos'] == "sent0") or \
-                (self.config['memory_sentence_pos'] == 'noise'):
+            elif (self.config['training']['memory_sentence_pos'] == "sent0") or \
+                (self.config['training']['memory_sentence_pos'] == 'noise'):
                 rnd_sent_idx = 0
+                
+            if 'closest' in self.config['training']['memory_sentence_pos']:
+                mask_sent_idx = random.randint(0, len(batch_data)-1)
+                rnd_sent_idx = batch_data[mask_sent_idx]['closest_s2v']
+
+            if not self.config['use_memory']:
+                rnd_sent_idx = random.randint(0, len(batch_data)-1)
 
         sent = batch_data[rnd_sent_idx]['sentence_emb'][0]
         if self.config['use_memory']:
@@ -327,23 +356,26 @@ class WikiS2vCorrectionBatch(Dataset):
         if use_true_s2v:
             rnd_sent_idx=rnd_sent_idx
         else:
-            if self.config['memory_sentence_pos'] == "+1":
+            if self.config['training']['memory_sentence_pos'] == "+1":
                 rnd_sent_idx = rnd_sent_idx - 1
-            elif self.config['memory_sentence_pos'] == "-1":
+            elif self.config['training']['memory_sentence_pos'] == "-1":
                 rnd_sent_idx = rnd_sent_idx + 1
-            elif self.config['memory_sentence_pos'] == "rnd":
+            elif self.config['training']['memory_sentence_pos'] == "rnd":
                 rnd_sent_idx2 = random.randint(0, len(batch_data)-2)
                 if rnd_sent_idx2 == rnd_sent_idx:
                     rnd_sent_idx = len(batch_data)-1
                 else:
                     rnd_sent_idx = rnd_sent_idx2
-            elif self.config['memory_sentence_pos'] == "sent0":
+            elif self.config['training']['memory_sentence_pos'] == "sent0":
                 rnd_sent_idx = random.randint(1, len(batch_data)-1)
-            elif self.config['memory_sentence_pos'] == 'maskSent':
+            elif self.config['training']['memory_sentence_pos'] == 'maskSent':
                 rnd_sent_idx = rnd_sent_idx
-            elif self.config['memory_sentence_pos'] == 'noise':
+            elif self.config['training']['memory_sentence_pos'] == 'noise':
                 rnd_sent_idx = random.randint(0, len(batch_data)-1)
         
+            if 'closest' in self.config['training']['memory_sentence_pos']:
+                rnd_sent_idx = mask_sent_idx
+
         if not self.config['use_memory']:
             rnd_sent_idx = random.randint(0, len(batch_data)-1)
 
@@ -364,7 +396,8 @@ class WikiS2vCorrectionBatch(Dataset):
             if token_idx >= self.config['max_sent_len']:
                 break
             if token == '<mask>':
-                masked_sentence[token_idx] = torch.tensor(0.0)
+                if self.config['training']['set_mask_token_to_0']:
+                    masked_sentence[token_idx] = torch.tensor(0.0)
                 label_sentence_mask[token_idx] = torch.tensor(0.0)
                 mask_cnt += 1
         if mask_cnt == 0:
