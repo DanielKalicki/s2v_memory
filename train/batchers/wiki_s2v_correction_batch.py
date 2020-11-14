@@ -352,7 +352,10 @@ class WikiS2vCorrectionBatch(Dataset):
         mem_sentence_mask[0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
 
         # masked sentence
-        batch_data = batch_full_mask_data[title]
+        if self.config['training']['use_mask_token']:
+            batch_data = batch_full_mask_data[title]
+        else:
+            batch_data = batch_full_data[title]
         if use_true_s2v:
             rnd_sent_idx=rnd_sent_idx
         else:
@@ -392,19 +395,21 @@ class WikiS2vCorrectionBatch(Dataset):
             torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
         batch_data = batch_full_mask_data[title]
         mask_cnt = 0
-        for token_idx, token in enumerate(batch_data[rnd_sent_idx]['sentence_words'][0]):
-            if token_idx >= self.config['max_sent_len']:
-                break
-            if token == '<mask>':
-                if self.config['training']['set_mask_token_to_0']:
-                    masked_sentence[token_idx] = torch.tensor(0.0)
-                label_sentence_mask[token_idx] = torch.tensor(0.0)
-                mask_cnt += 1
-        if mask_cnt == 0:
-            # in case that there is no mask select random word to use as mask
-            rnd_word = random.randint(0, min(len(sent), self.config['max_sent_len'])-1)
-            label_sentence_mask[rnd_word] = torch.tensor(0.0)
-        # label_sentence_mask[0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
+        if self.config['training']['use_mask_token']:
+            for token_idx, token in enumerate(batch_data[rnd_sent_idx]['sentence_words'][0]):
+                if token_idx >= self.config['max_sent_len']:
+                    break
+                if token == '<mask>':
+                    if self.config['training']['set_mask_token_to_0']:
+                        masked_sentence[token_idx] = torch.tensor(0.0)
+                    label_sentence_mask[token_idx] = torch.tensor(0.0)
+                    mask_cnt += 1
+            if mask_cnt == 0:
+                # in case that there is no mask select random word to use as mask
+                rnd_word = random.randint(0, min(len(sent), self.config['max_sent_len'])-1)
+                label_sentence_mask[rnd_word] = torch.tensor(0.0)
+        else:
+            label_sentence_mask[0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
 
         return masked_sentence, masked_sentence_mask, mem_sentence, mem_sentence_mask, \
                label_sentence, label_sentence_mask

@@ -229,6 +229,7 @@ for _ in range(0, 100):
     else:
         configs[i]['use_memory'] = True
     configs[i]['training']['set_mask_token_to_0'] = False
+    configs[i]['training']['use_mask_token'] = True
     configs[i]['training']['memory_true_s2v_initial_rate'] = 0.0
     configs[i]['training']['memory_true_s2v_initial_rate'] = 0.0
     configs[i]['training']['memory_true_s2v_gamma'] = 0.0
@@ -297,11 +298,80 @@ for _ in range(0, 100):
 
     if i in (136, 137):
         configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
-        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn input'
-        configs[i]['sentence_encoder']['transformer']['num_layers'] = 3
+        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
         configs[i]['sentence_mlm']['transformer']['mha'] = False
         configs[i]['sentence_mlm']['transformer']['num_heads'] = False
         configs[i]['training']['epochs'] = 300
+
+    if i in (138, 139):
+        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
+        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
+        configs[i]['sentence_mlm']['transformer']['mha'] = False
+        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
+        configs[i]['training']['memory_sentence_pos'] = "rnd"
+        configs[i]['training']['epochs'] = 300
+        if i == 139:
+            configs[i]['training']['epochs'] = -100 # skip
+            configs[i]['sentence_mlm']['transformer']['memory_gate'] = 'skip'
+
+    if i in (140, 141):
+        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
+        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
+        configs[i]['sentence_mlm']['transformer']['mha'] = False
+        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
+        configs[i]['training']['memory_sentence_pos'] = "rnd"
+        configs[i]['training']['epochs'] = 300
+        configs[i]['sentence_encoder']['transformer']['num_layers'] = 3
+        if i == 141:
+            configs[i]['training']['epochs'] = -100 # skip
+            configs[i]['sentence_mlm']['transformer']['memory_gate'] = 'skip'
+
+    if i in (142, 143):
+        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
+        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
+        configs[i]['sentence_mlm']['transformer']['mha'] = False
+        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
+        configs[i]['training']['memory_sentence_pos'] = "rnd"
+        configs[i]['training']['epochs'] = 300
+        configs[i]['sentence_mlm']['transformer']['num_layers'] = 8
+
+    if i in (144, 145):
+        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
+        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
+        configs[i]['sentence_mlm']['transformer']['mha'] = False
+        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
+        configs[i]['training']['memory_sentence_pos'] = "rnd"
+        configs[i]['training']['epochs'] = 300
+        configs[i]['sentence_mlm']['input_drop'] = 0.1
+
+    if i in (146, 147):
+        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
+        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
+        configs[i]['sentence_mlm']['transformer']['mha'] = False
+        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
+        configs[i]['training']['memory_sentence_pos'] = "rnd"
+        configs[i]['training']['epochs'] = 300
+        configs[i]['sentence_mlm']['input_drop'] = 0.3
+
+    if i in (148, 149):
+        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
+        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
+        configs[i]['sentence_mlm']['transformer']['mha'] = False
+        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
+        configs[i]['training']['memory_sentence_pos'] = "rnd"
+        configs[i]['training']['epochs'] = 300
+        configs[i]['training']['use_mask_token'] = False
+        configs[i]['sentence_mlm']['input_drop'] = 0.3
+
+    if i in (150, 151):
+        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
+        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
+        configs[i]['sentence_mlm']['transformer']['mha'] = False
+        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
+        configs[i]['training']['memory_sentence_pos'] = "rnd"
+        configs[i]['training']['epochs'] = 300
+        configs[i]['training']['use_mask_token'] = False
+        configs[i]['sentence_mlm']['input_drop'] = 0.5
 
     mem_pos = ""
     for mp in configs[i]['sentence_mlm']['transformer']['memory_position'].split(', '):
@@ -329,6 +399,7 @@ for _ in range(0, 100):
         '_mem' + str(configs[i]['use_memory']) + '=' + configs[i]['training']['memory_sentence_pos'] + \
         '_trs2v' + str(configs[i]['training']['memory_true_s2v_initial_rate']) + \
         '.g' + str(configs[i]['training']['memory_true_s2v_gamma']) + \
-        '_mask0' +str(configs[i]['training']['set_mask_token_to_0']) + \
+        '_mask' + str(configs[i]['training']['use_mask_token'])[0] + \
+        '0' + str(configs[i]['training']['set_mask_token_to_0']) + \
         '_v12_normLoss_trDoc40_' + str(i)
     i += 1
