@@ -10,6 +10,7 @@ import time
 import sys
 from configs import configs
 from tqdm import tqdm
+import numpy as np
 
 print(int(sys.argv[1]))
 config = configs[int(sys.argv[1])]
@@ -21,17 +22,24 @@ if config['training']['log']:
 def train(model, device, train_loader, optimizer, epoch, scheduler=None):
     model.train()
     train_loss = 0.0
+
+    ord_total = 0.0
+    ord_correct = 0.0
+
     start = time.time()
     pbar = tqdm(total=len(train_loader), dynamic_ncols=True)
-    # criterion = torch.nn.MSELoss()
-    for batch_idx, (sent, sent_mask, mem_sent, mem_sent_mask, label_sent, label_sent_mask) in enumerate(train_loader):
+    # cos = torch.nn.CosineSimilarity(dim=1, eps=1e-6)
+    criterion = torch.nn.CrossEntropyLoss()
+    for batch_idx, (sent, sent_mask, mem_sent, mem_sent_mask, label_sent, label_sent_mask, sent_order) in enumerate(train_loader):
         sent, sent_mask = sent.to(device), sent_mask.to(device)
         mem_sent, mem_sent_mask = mem_sent.to(device), mem_sent_mask.to(device)
         label_sent, label_sent_mask = label_sent.to(device), label_sent_mask.to(device)
+        sent_order = torch.squeeze(sent_order.to(device))
         optimizer.zero_grad()
 
         model_output = model(sent, mem_sent, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask)
         sent_pred = model_output['sent']
+        mem_s2v = model_output['mem_s2v']
 
         # pred_loss = criterion(sent_pred, label_sent)
         sent_pred = torch.nn.functional.normalize(sent_pred, dim=2)
@@ -39,6 +47,22 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
         pred_loss = torch.sum(torch.mean(torch.pow(sent_pred - label_sent, 2), dim=2) * \
                              (1-label_sent_mask.type(torch.cuda.FloatTensor))) / \
                     torch.sum(1- label_sent_mask.type(torch.cuda.FloatTensor))
+        pred_loss *= 1e4
+        # mem_s2v = torch.nn.functional.normalize(mem_s2v, dim=1)
+        # pred_loss += torch.sum(torch.abs(torch.mean(mem_s2v, axis=0)))*1e-6
+
+        # if mem_s2v.shape[0] == config['batch_size']:
+        #     mem_s2v = mem_s2v.reshape(sent.shape[0]*config['num_mem_sents'], mem_s2v.shape[2])
+        #     mem_v_size = mem_s2v.shape[0]//2
+        #     # pred_loss += torch.mean(torch.abs(cos(mem_s2v[:mem_v_size], mem_s2v[mem_v_size:])))*8e-5*(0.8**(epoch))
+        #     pred_loss += torch.mean(torch.abs(cos(mem_s2v[:mem_v_size], mem_s2v[mem_v_size:])))*8e-5
+
+        if mem_s2v.shape[0] == config['batch_size']:
+            ord_loss = criterion(model_output['order'], sent_order)
+            pred_loss += ord_loss
+
+        if batch_idx % 700 == 0:
+            print(mem_s2v)
         train_loss += pred_loss.detach()
 
         pred_loss.backward(retain_graph=True)
@@ -47,12 +71,22 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
 
             model_output = model(sent, mem_sent, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask)
             sent_pred = model_output['sent']
+            mem_s2v = model_output['mem_s2v']
+            mem_s2v = model_output['mem_s2v']
 
             sent_pred = torch.nn.functional.normalize(sent_pred, dim=2)
             label_sent = torch.nn.functional.normalize(label_sent, dim=2)
             pred_loss = torch.sum(torch.mean(torch.pow(sent_pred - label_sent, 2), dim=2) * \
                                 (1-label_sent_mask.type(torch.cuda.FloatTensor))) / \
-                        torch.sum(1- label_sent_mask.type(torch.cuda.FloatTensor))
+                        torch.sum(1-label_sent_mask.type(torch.cuda.FloatTensor))
+            # mem_s2v = torch.nn.functional.normalize(mem_s2v, dim=1)
+            # pred_loss += torch.sum(torch.mean(torch.abs(mem_s2v), axis=0))*1e-5
+            # pred_loss += cos(mem_s2v[:config['batch_size']//2], mem_s2v[config['batch_size']//2:])
+            # if mem_s2v.shape[0] == config['batch_size']:
+            #     mem_v_size = mem_s2v.shape[0]//2
+            #     pred_loss += torch.mean(torch.abs(cos(mem_s2v[:mem_v_size], mem_s2v[mem_v_size:])))*8e-5
+
+
             pred_loss.backward(retain_graph=True)
             optimizer.second_step(zero_grad=True)
         else:
@@ -61,7 +95,14 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
         if scheduler:
             scheduler.step()
 
-        pbar.set_description("L" + str(round(float(pred_loss.detach()*1000), 4)))
+        if mem_s2v.shape[0] == config['batch_size']:
+            _, pred_idx = torch.max(model_output['order'], 1)
+            label_idx = sent_order
+            ord_total += sent_order.size(0)
+            ord_correct += (pred_idx == label_idx).sum().item()
+
+        # pbar.set_description("L" + str(round(float(pred_loss.detach()*1000), 4)))
+        pbar.set_description("L" + str(round(float(pred_loss.detach()), 4)))
         pbar.update(1)
     pbar.close()
     end = time.time()
@@ -71,6 +112,7 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
     print('\t\tTraining time: {:.2f}'.format((end - start)))
     if config['training']['log']:
         writer.add_scalar('loss/train', train_loss, epoch)
+        writer.add_scalar('ord_acc/train', 100.0*ord_correct/ord_total, epoch)
         writer.flush()
 
 def test(model, device, test_loader, epoch):
@@ -78,7 +120,7 @@ def test(model, device, test_loader, epoch):
     test_loss = 0.0
     # criterion = torch.nn.MSELoss()
     with torch.no_grad():
-        for batch_idx, (sent, sent_mask, mem_sent, mem_sent_mask, label_sent, label_sent_mask) in enumerate(test_loader):
+        for batch_idx, (sent, sent_mask, mem_sent, mem_sent_mask, label_sent, label_sent_mask, _) in enumerate(test_loader):
             sent, sent_mask = sent.to(device), sent_mask.to(device)
             mem_sent, mem_sent_mask = mem_sent.to(device), mem_sent_mask.to(device)
             label_sent, label_sent_mask = label_sent.to(device), label_sent_mask.to(device)
@@ -91,7 +133,8 @@ def test(model, device, test_loader, epoch):
             label_sent = torch.nn.functional.normalize(label_sent, dim=2)
             pred_loss = torch.sum(torch.mean(torch.pow(sent_pred - label_sent, 2), dim=2) * \
                                  (1-label_sent_mask.type(torch.cuda.FloatTensor))) / \
-                        torch.sum(1- label_sent_mask.type(torch.cuda.FloatTensor))
+                        torch.sum(1-label_sent_mask.type(torch.cuda.FloatTensor))
+            pred_loss *= 1e4
             test_loss += pred_loss.detach()
 
     test_loss /= batch_idx + 1
@@ -101,11 +144,60 @@ def test(model, device, test_loader, epoch):
     print('\t\tTest set: Average loss: {:.6f}'.format(test_loss))
     return test_loss
 
+def sentence_score_prediction(model, device, dataset):
+    model.eval()
+    with torch.no_grad():
+        title_idx = 5
+        input_sent_idx = 0
+        input_sent, input_sent_mask = dataset.get_sentence(title_idx, input_sent_idx)
+        lines = []
+        for _ in range(0, 100):
+            cnt = 0
+            for prob_sent in dataset.get_sentences_from_doc(title_idx):
+                if prob_sent['idx'] != input_sent_idx:
+                    mem_sent = prob_sent['emb']
+                    mem_sent_mask = prob_sent['mask']
+                    sent, sent_mask = input_sent.to(device), input_sent_mask.to(device)
+                    mem_sent, mem_sent_mask = mem_sent.to(device), mem_sent_mask.to(device)
+                    label_sent, label_sent_mask = input_sent.to(device), input_sent_mask.to(device)
+
+                    drop_mask = torch.from_numpy(
+                        np.random.binomial(1, 1-config['training']['input_drop'],
+                                        (config['max_sent_len'], config['word_edim'])
+                                        ).astype(np.float32)).to(device)
+                    sent = sent*drop_mask
+
+                    model_output = model(sent, mem_sent, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask)
+                    sent_pred = model_output['sent']
+
+                    sent_pred = torch.nn.functional.normalize(sent_pred, dim=2)
+                    label_sent = torch.nn.functional.normalize(label_sent, dim=2)
+                    pred_loss = torch.sum(torch.mean(torch.pow(sent_pred - label_sent, 2), dim=2) * \
+                                        (1-label_sent_mask.type(torch.cuda.FloatTensor))) / \
+                                torch.sum(1-label_sent_mask.type(torch.cuda.FloatTensor))
+                    if len(lines) == cnt:
+                        lines.append({'score': float(pred_loss), 'text': prob_sent['text']})
+                    else:
+                        lines[cnt]['score'] += float(pred_loss)
+                    cnt += 1
+        max_score = -1e6
+        min_score = 1e6
+        for line in lines:
+            if line['score'] > max_score:
+                max_score = line['score']
+            if line['score'] < min_score:
+                min_score = line['score']
+        for line in lines:
+            norm_score = round(100-(line['score']-min_score)/(max_score-min_score)*100)
+            print(str(norm_score) + "\t" + line['text'])
+
+    exit(0)
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # model
 model = SentenceEncoder(config)
-# restore_name = 'b24sL32_Adamlr8e-05s10g0.5_gTr4.mha16.ffn256.poolmean.s2v2048_mTr4idr0.0.mha16.ffn256.postNorm_memTrue=sent.onlyMaskLoss_inMaskW0_v5_0'
+# restore_name = 'b24sL32_Adamlr0.0002s10g0.75_gTr1.mha16.ffn256.gateF.poolmeanmha.s2v2048_mTr4idr0.0.mhaFalse.ffn256.hdr0.0.postNorm.fh.mGateTanhT_memTrue=rnd.cnt1_trs2v0.0.g0.0_maskF0Falsedr0.3_v15_memLoss1e-5_normloss_trDoc40_202'
 # checkpoint = torch.load('./train/save/'+restore_name)
 # model.load_state_dict(checkpoint['model_state_dict'])
 print(model)
@@ -122,6 +214,8 @@ dataset_test = WikiS2vCorrectionBatch(config, valid=True)
 data_loader_test = torch.utils.data.DataLoader(
     dataset_test, batch_size=config['batch_size'],
     shuffle=False, num_workers=0)
+
+# sentence_score_prediction(model, device, dataset_test)
 
 if config['training']['optimizer'] == "Adam":
     optimizer = optim.Adam(model.parameters(), lr=config['training']['lr'])
