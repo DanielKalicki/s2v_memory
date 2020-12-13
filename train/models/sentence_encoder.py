@@ -160,14 +160,15 @@ class GatedTransformerEncoderLayer(nn.Module):
 class MemoryTransformerEncoderLayer(nn.Module):
     # based on https://pytorch.org/docs/stable/_modules/torch/nn/modules/transformer.html#TransformerEncoderLayer
     def __init__(self, d_model, nhead, d_memory, dim_feedforward=2048, dropout=0.1, activation="relu",
-                 mha_enabled=True, memory_position="", memory_gate=True, hidden_sentence_dropout=0.0):
+                 mha_enabled=True, memory_position="", gate=False, memory_gate=False, memory_res_ffn=False, hidden_sentence_dropout=0.0):
         super(MemoryTransformerEncoderLayer, self).__init__()
         self.d_model = d_model
+        self.gate = gate
         self.mha_enabled = mha_enabled
         self.memory_position = memory_position
         self.memory_gate = memory_gate
+        self.memory_res_ffn = memory_res_ffn
 
-        # self.linear1 = nn.Linear(d_model, dim_feedforward)
         self.hsent_drop1 = nn.Dropout(hidden_sentence_dropout)
         self.linear1 = nn.Linear(d_model+(d_memory if 'ffn input' in memory_position else 0), dim_feedforward)
         self.activation = _get_activation_fn(activation)
@@ -179,15 +180,32 @@ class MemoryTransformerEncoderLayer(nn.Module):
         self.norm2 = nn.LayerNorm(d_model)
 
         if self.mha_enabled:
-            self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, out_dim_mult=1.0)
+            # self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, out_dim_mult=1.0)
+            self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, out_dim_mult=0.25)
             self.hsent_drop_mha = nn.Dropout(hidden_sentence_dropout)
-            self.linear_mha = nn.Linear(d_model+(d_memory if 'mha hidden' in memory_position else 0), d_model)
+            # self.linear_mha = nn.Linear(d_model+(d_memory if 'mha hidden' in memory_position else 0), d_model)
+            self.linear_mha = nn.Linear(int(d_model*0.25)+(d_memory if 'mha hidden' in memory_position else 0), d_model)
 
             self.dropout1 = nn.Dropout(dropout)
             self.norm1 = nn.LayerNorm(d_model)
 
+        # self.mem_linear1 = nn.Linear(d_memory, dim_feedforward)
+        # self.mem_gate1 = nn.Linear(d_model+d_memory, dim_feedforward)
+        # self.mem_linear2 = nn.Linear(dim_feedforward, d_model)
+        # self.norm3 = nn.LayerNorm(d_model)
+
         if self.memory_gate:
             self.mem_gate = nn.Linear(d_model+d_memory, d_memory)
+
+        if self.gate:
+            self.gate = nn.Linear(d_model+d_memory, d_model)
+
+        if self.memory_res_ffn:
+            # self.mem_l1 = nn.Linear(d_memory, 256)
+            # self.mem_l2 = nn.Linear(256, d_memory)
+            self.mem_l1 = nn.Linear(d_memory, d_memory)
+
+        self.conv_1 = nn.Conv1d(d_model, d_model, 3, padding=1)
 
     def __setstate__(self, state):
         if 'activation' not in state:
@@ -198,8 +216,13 @@ class MemoryTransformerEncoderLayer(nn.Module):
         mem = src[:, :, self.d_model:]
         src = src[:, :, :self.d_model]
 
+        mem_ = mem
+
         if self.memory_gate:
-            mem = mem*torch.tanh(torch.abs(self.mem_gate(torch.cat([src, mem], dim=2))))
+            mem_ = mem_*torch.tanh(torch.abs(self.mem_gate(torch.cat((src, mem), dim=2))))
+
+        if self.memory_res_ffn:
+            mem_ = F.gelu(self.mem_l1(mem))
 
         if self.mha_enabled:
             # src_ = self.norm1(src)
@@ -207,23 +230,27 @@ class MemoryTransformerEncoderLayer(nn.Module):
             src2 = self.self_attn(src_, src_, src_, attn_mask=src_mask,
                                 key_padding_mask=src_key_padding_mask)[0]
             if 'mha hidden' in self.memory_position:
-                src2 = torch.cat([self.hsent_drop_mha(src2), mem], dim=2)
+                src2 = torch.cat((self.hsent_drop_mha(src2), mem_), dim=2)
             src2 = self.linear_mha(src2)
             src = src + self.dropout1(src2)
             src = self.norm1(src)
 
         # src_ = self.norm2(src)
-        src_ = src
+        # src_ = src
+        src_ = self.conv_1(src.permute(0,2,1)).permute(0,2,1)
+
         if 'ffn input' in self.memory_position:
-            src_ = torch.cat([self.hsent_drop1(src_), mem], dim=2)
-        src2 = self.dropout(self.activation(self.linear1(src_)))
+            src_ = torch.cat((self.hsent_drop1(src_), mem_), dim=2)
+        src2 = self.activation(self.linear1(src_))
         if 'ffn hidden' in self.memory_position:
-            src2 = torch.cat([self.hsent_drop2(src2), mem], dim=2)
+            src2 = torch.cat((self.hsent_drop2(src2), mem_), dim=2)
         src2 = self.linear2(src2)
+        if self.gate:
+            src2 = src2 * torch.sigmoid(self.gate(torch.cat((src2, mem_), dim=2)))
         src = src + self.dropout2(src2)
         src = self.norm2(src)
 
-        src = torch.cat([src, mem], dim=2)
+        src = torch.cat((src, mem), dim=2)
         return src
 
 class SentenceEncoder(nn.Module):
@@ -258,8 +285,9 @@ class SentenceEncoder(nn.Module):
         pool_mha_drop = config['sentence_encoder']['pooling']['mha']['attention_dropout']
         pool_mha_out_mult = self.s2v_dim/self.word_edim
 
-        self.mem_mha_pool = MultiheadAttention(self.word_edim, pool_mha_nhead, dropout=pool_mha_drop,
-                                               out_dim_mult=pool_mha_out_mult)
+        if self.config['sentence_encoder']['pooling']['pooling_method'] == 'mha':
+            self.mem_mha_pool = MultiheadAttention(self.word_edim, pool_mha_nhead, dropout=pool_mha_drop,
+                                                out_dim_mult=pool_mha_out_mult)
 
         # mlm transformer
         self.mlm_in_dr = nn.Dropout(config['sentence_mlm']['input_drop'])
@@ -267,20 +295,27 @@ class SentenceEncoder(nn.Module):
         mtr_num_layers = config['sentence_mlm']['transformer']['num_layers']
         mtr_dim_feedforward = config['sentence_mlm']['transformer']['ffn_dim']
         mtr_drop = config['sentence_mlm']['transformer']['dropout']
+        mtr_gate = config['sentence_mlm']['transformer']['gate']
         mtr_mha_en = config['sentence_mlm']['transformer']['mha']
         mtr_mem_pos = config['sentence_mlm']['transformer']['memory_position']
         mtr_mem_gate = config['sentence_mlm']['transformer']['memory_gate']
+        mtr_mem_res_ffn = config['sentence_mlm']['transformer']['memory_res_ffn']
         mtr_hsent_drop = config['sentence_mlm']['transformer']['hidden_sentence_drop']
 
         mlm_encoder_layer = MemoryTransformerEncoderLayer(d_model=self.word_edim, nhead=mtr_num_head,
-                                                          d_memory=self.s2v_dim,
+                                                          d_memory=self.s2v_dim*self.config['num_mem_sents'],
                                                           dim_feedforward=mtr_dim_feedforward,
                                                           dropout=mtr_drop, activation="gelu",
                                                           mha_enabled=mtr_mha_en,
+                                                          gate=mtr_gate,
                                                           memory_position=mtr_mem_pos,
                                                           memory_gate=mtr_mem_gate,
+                                                          memory_res_ffn=mtr_mem_res_ffn,
                                                           hidden_sentence_dropout=mtr_hsent_drop)
         self.mlm_mtr = nn.TransformerEncoder(mlm_encoder_layer, num_layers=mtr_num_layers)
+
+        self.fc_1 = nn.Linear(self.s2v_dim*4, 512)
+        self.fc_2 = nn.Linear(512, 2)
 
     def _emb_sent(self, sent, sent_mask=None):
         sent = self.mem_in_dr(sent)
@@ -289,7 +324,9 @@ class SentenceEncoder(nn.Module):
         if self.config['sentence_encoder']['transformer']['num_layers'] > 0:
             sent = self.mem_gtr(sent, src_key_padding_mask=sent_mask)
             sent = self.mem_norm(sent)
-        sent, _ = self.mem_mha_pool(sent, sent, sent, key_padding_mask=sent_mask)
+
+        if self.config['sentence_encoder']['pooling']['pooling_method'] == 'mha':
+            sent, _ = self.mem_mha_pool(sent, sent, sent, key_padding_mask=sent_mask)
 
         sent = sent.permute((1, 0, 2))
 
@@ -307,7 +344,7 @@ class SentenceEncoder(nn.Module):
         sent = sent.permute((1, 0, 2))
 
         mem_s2v = torch.cat([mem_s2v.unsqueeze(0)]*sent.shape[0], dim=0)
-        sent = torch.cat([sent, mem_s2v], dim=2)
+        sent = torch.cat((sent, mem_s2v), dim=2)
         sent = self.mlm_mtr(sent, src_key_padding_mask=sent_mask)
         sent = sent[:, :, 0:self.word_edim]
 
@@ -315,13 +352,25 @@ class SentenceEncoder(nn.Module):
         return sent
 
     def forward(self, sent, mem_sent, sent_mask=None, mem_sent_mask=None):
-        mem_s2v = self._emb_sent(mem_sent, sent_mask=mem_sent_mask)
+        mem_sent = mem_sent.reshape(mem_sent.shape[0]*mem_sent.shape[1], mem_sent.shape[2], mem_sent.shape[3])
+        mem_sent_mask = mem_sent_mask.reshape(mem_sent_mask.shape[0]*mem_sent_mask.shape[1],
+                                              mem_sent_mask.shape[2])
 
-        sent = self._sent_mlm(sent, mem_s2v, sent_mask=sent_mask)
+        mem_s2v = self._emb_sent(mem_sent, sent_mask=mem_sent_mask)
+        # mem_s2v = mem_s2v.reshape(sent.shape[0], self.config['num_mem_sents']*mem_s2v.shape[1])
+        mem_s2v = mem_s2v.reshape(sent.shape[0], 2, mem_s2v.shape[1])
+
+        sent = self._sent_mlm(sent, mem_s2v[:, 1], sent_mask=sent_mask)
 
         sent = sent[:, :mem_sent.shape[1]]
+        # mem_s2v = mem_s2v.reshape(sent.shape[0], self.config['num_mem_sents'], -1)
+
+        order = self.fc_1(torch.cat((mem_s2v[:, 0], mem_s2v[:, 1], torch.abs(mem_s2v[:, 0]-mem_s2v[:, 1]), mem_s2v[:, 0]*mem_s2v[:, 1]), dim=1))
+        order = F.gelu(order)
+        order = self.fc_2(order)
 
         return {
             'mem_s2v': mem_s2v,
-            'sent': sent
+            'sent': sent,
+            'order': order
         }
