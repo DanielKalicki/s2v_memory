@@ -304,7 +304,7 @@ class WikiS2vCorrectionBatch(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
 
-        self.config['num_mem_sents'] = 2
+        self.config['num_mem_sents'] = 3
 
         mem_sentence = torch.zeros((self.config['num_mem_sents'], self.config['max_sent_len'], self.config['word_edim'],), dtype=torch.float)
         mem_sentence_mask = torch.ones((self.config['num_mem_sents'], self.config['max_sent_len'],), dtype=torch.bool)
@@ -335,21 +335,31 @@ class WikiS2vCorrectionBatch(Dataset):
             mem_sentence[0][0:min(len(sent), self.config['max_sent_len'])] =\
                 torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
         mem_sentence_mask[0][0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
+
         rnd_order = random.choice([False, True])
         sent_order[0] = rnd_order
         if rnd_order:
             sent = batch_data[rnd_mem_sent_idx+1]['sentence_emb'][0]
-            if self.config['use_memory']:
-                mem_sentence[1][0:min(len(sent), self.config['max_sent_len'])] =\
-                    torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
-            mem_sentence_mask[1][0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
         else:
             rnd_mem_sent_idx = random.randint(0, len(batch_data) - 1 - 1)
             sent = batch_data[rnd_mem_sent_idx]['sentence_emb'][0]
-            if self.config['use_memory']:
-                mem_sentence[1][0:min(len(sent), self.config['max_sent_len'])] =\
-                    torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
-            mem_sentence_mask[1][0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
+
+        if self.config['use_memory']:
+            mem_sentence[1][0:min(len(sent), self.config['max_sent_len'])] =\
+                torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
+        mem_sentence_mask[1][0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
+
+        # 2nd sent from other document
+        title2 = title
+        while title2 == title:
+            title2 = self.get_title_from_idx()
+        batch_data2 = batch_full_data[title2]
+        rnd_doc2_mem_sent_idx = random.randint(0, len(batch_data2) - 1)
+        sent = batch_data2[rnd_doc2_mem_sent_idx]['sentence_emb'][0]
+        if self.config['use_memory']:
+            mem_sentence[2][0:min(len(sent), self.config['max_sent_len'])] =\
+                torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
+        mem_sentence_mask[2][0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
 
         # masked sentence
         if self.config['training']['memory_sentence_pos'] == "rnd":
@@ -377,134 +387,15 @@ class WikiS2vCorrectionBatch(Dataset):
 
         # label sentence
         sent = batch_data[rnd_input_sent_idx]['sentence_emb'][0]
-        label_sentence[0:min(len(sent), self.config['max_sent_len'])] =\
-            torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
-        label_sentence_mask[0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
+        # label_sentence[0:min(len(sent), self.config['max_sent_len'])] =\
+        #     torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
+        # label_sentence_mask[0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
+        label_sentence[1:min(len(sent)+1, self.config['max_sent_len'])] =\
+            torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len']-1)].astype(np.float32))
+        label_sentence_mask[1:min(len(sent)+1, self.config['max_sent_len'])] = torch.tensor(0.0)
 
         return masked_sentence, masked_sentence_mask, mem_sentence, mem_sentence_mask, \
                label_sentence, label_sentence_mask, sent_order
-
-    def __getitem__v1(self, idx):
-        global batch_train_data, batch_valid_data
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-
-        mem_sentence = torch.zeros((self.config['max_sent_len'], self.config['word_edim'],), dtype=torch.float)
-        mem_sentence_mask = torch.ones((self.config['max_sent_len'],), dtype=torch.bool)
-
-        masked_sentence = torch.zeros((self.config['max_sent_len'], self.config['word_edim'],), dtype=torch.float)
-        masked_sentence_mask = torch.ones((self.config['max_sent_len'],), dtype=torch.bool)
-
-        label_sentence = torch.zeros((self.config['max_sent_len'], self.config['word_edim'],), dtype=torch.float)
-        label_sentence_mask = torch.ones((self.config['max_sent_len'],), dtype=torch.bool)
-
-        title = self.get_title_from_idx()
-
-        use_true_s2v = False
-        if (random.random() < self.true_s2v_rate) and (not self.valid):
-            use_true_s2v = True
-
-        # memory sentence
-        batch_data = batch_full_data[title]
-        if use_true_s2v:
-            rnd_sent_idx = random.randint(0, len(batch_data)-1)
-        else:
-            if self.config['training']['memory_sentence_pos'] == "+1":
-                rnd_sent_idx = random.randint(1, len(batch_data)-1)
-            elif self.config['training']['memory_sentence_pos'] == "-1":
-                rnd_sent_idx = random.randint(0, len(batch_data)-2)
-            elif (self.config['training']['memory_sentence_pos'] == "rnd") or \
-                (self.config['training']['memory_sentence_pos'] == 'maskSent'):
-                rnd_sent_idx = random.randint(0, len(batch_data)-1)
-            elif (self.config['training']['memory_sentence_pos'] == "sent0") or \
-                (self.config['training']['memory_sentence_pos'] == 'noise'):
-                rnd_sent_idx = 0
-                
-            if 'closest' in self.config['training']['memory_sentence_pos']:
-                mask_sent_idx = random.randint(0, len(batch_data)-1)
-                rnd_sent_idx = batch_data[mask_sent_idx]['closest_s2v']
-
-            if not self.config['use_memory']:
-                rnd_sent_idx = random.randint(0, len(batch_data)-1)
-
-        sent = batch_data[rnd_sent_idx]['sentence_emb'][0]
-        if self.config['use_memory']:
-            mem_sentence[0:min(len(sent), self.config['max_sent_len'])] =\
-                torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
-        if self.config['memory_sentence_pos'] == 'noise':
-            mem_sentence = torch.randn_like(mem_sentence)
-
-        mem_sentence_mask[0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
-
-        # masked sentence
-        if self.config['training']['use_mask_token']:
-            batch_data = batch_full_mask_data[title]
-        else:
-            batch_data = batch_full_data[title]
-        if use_true_s2v:
-            rnd_sent_idx=rnd_sent_idx
-        else:
-            if self.config['training']['memory_sentence_pos'] == "+1":
-                rnd_sent_idx = rnd_sent_idx - 1
-            elif self.config['training']['memory_sentence_pos'] == "-1":
-                rnd_sent_idx = rnd_sent_idx + 1
-            elif self.config['training']['memory_sentence_pos'] == "rnd":
-                rnd_sent_idx2 = random.randint(0, len(batch_data)-2)
-                if rnd_sent_idx2 == rnd_sent_idx:
-                    rnd_sent_idx = len(batch_data)-1
-                else:
-                    rnd_sent_idx = rnd_sent_idx2
-            elif self.config['training']['memory_sentence_pos'] == "sent0":
-                rnd_sent_idx = random.randint(1, len(batch_data)-1)
-            elif self.config['training']['memory_sentence_pos'] == 'maskSent':
-                rnd_sent_idx = rnd_sent_idx
-            elif self.config['training']['memory_sentence_pos'] == 'noise':
-                rnd_sent_idx = random.randint(0, len(batch_data)-1)
-        
-            if 'closest' in self.config['training']['memory_sentence_pos']:
-                rnd_sent_idx = mask_sent_idx
-
-        if not self.config['use_memory']:
-            rnd_sent_idx = random.randint(0, len(batch_data)-1)
-
-        sent = batch_data[rnd_sent_idx]['sentence_emb'][0]
-        masked_sentence[0:min(len(sent), self.config['max_sent_len'])] =\
-            torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
-        masked_sentence_mask[0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
-
-        if self.config['training']['input_drop'] != 0.0:
-            drop_mask = torch.from_numpy(
-                np.random.binomial(1, 1-self.config['training']['input_drop'],
-                                   (self.config['max_sent_len'], self.config['word_edim'])
-                                  ).astype(np.float32))
-            masked_sentence = masked_sentence*drop_mask
-
-        # label sentence
-        batch_data = batch_full_data[title]
-        # rnd_sent_idx the same as masked sentence
-        sent = batch_data[rnd_sent_idx]['sentence_emb'][0]
-        label_sentence[0:min(len(sent), self.config['max_sent_len'])] =\
-            torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
-        batch_data = batch_full_mask_data[title]
-        mask_cnt = 0
-        if self.config['training']['use_mask_token']:
-            for token_idx, token in enumerate(batch_data[rnd_sent_idx]['sentence_words'][0]):
-                if token_idx >= self.config['max_sent_len']:
-                    break
-                if token == '<mask>':
-                    if self.config['training']['set_mask_token_to_0']:
-                        masked_sentence[token_idx] = torch.tensor(0.0)
-                    label_sentence_mask[token_idx] = torch.tensor(0.0)
-                    mask_cnt += 1
-            if mask_cnt == 0:
-                # in case that there is no mask select random word to use as mask
-                rnd_word = random.randint(0, min(len(sent), self.config['max_sent_len'])-1)
-                label_sentence_mask[rnd_word] = torch.tensor(0.0)
-        else:
-            label_sentence_mask[0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
-
-        return masked_sentence, masked_sentence_mask, mem_sentence, mem_sentence_mask, \
-               label_sentence, label_sentence_mask
 
     def get_sentence(self, title_idx, sent_idx):
         global batch_train_data, batch_valid_data
@@ -534,13 +425,14 @@ class WikiS2vCorrectionBatch(Dataset):
 
         sentences = []
         for sent_idx in range(0, len(batch_data)-1):
-            sentence = torch.zeros((1, self.config['max_sent_len'], self.config['word_edim'],), dtype=torch.float)
-            sentence_mask = torch.ones((1, self.config['max_sent_len'],), dtype=torch.bool)
+            sentence = torch.zeros((1, 3, self.config['max_sent_len'], self.config['word_edim'],), dtype=torch.float)
+            sentence_mask = torch.ones((1, 3, self.config['max_sent_len'],), dtype=torch.bool)
 
             sent = batch_data[sent_idx]['sentence_emb'][0]
-            sentence[0][0:min(len(sent), self.config['max_sent_len'])] =\
-                torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
-            sentence_mask[0][0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
+            for i in range(0, 3):
+                sentence[0][i][0:min(len(sent), self.config['max_sent_len'])] =\
+                    torch.from_numpy(sent[0:min(len(sent), self.config['max_sent_len'])].astype(np.float32))
+                sentence_mask[0][i][0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
 
             sentences.append({'idx': sent_idx, 'text': batch_data[sent_idx]['sentence'],
                               'emb': sentence, 'mask': sentence_mask})
