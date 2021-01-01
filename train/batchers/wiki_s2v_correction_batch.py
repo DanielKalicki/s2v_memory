@@ -97,21 +97,21 @@ class WikiS2vCorrectionBatch(Dataset):
                         'paragraph_idx': p_idx,
                         'line_idx': l_idx
                     })
-                    mask_sent_split = []
-                    for word in sentence.strip().split(" "):
-                        if random.randint(0, 99) < 10:
-                            mask_sent_split.append("<mask>")
-                        else:
-                            mask_sent_split.append(word)
-                    masked_sentence = " ".join(mask_sent_split)
-                    sentence_emb, words = self._process_sentences([masked_sentence])
-                    masked_article.append({
-                        'sentence': sentence,
-                        'sentence_emb': sentence_emb,
-                        'sentence_words': words,
-                        'paragraph_idx': p_idx,
-                        'line_idx': l_idx
-                    })
+                    # mask_sent_split = []
+                    # for word in sentence.strip().split(" "):
+                    #     if random.randint(0, 99) < 10:
+                    #         mask_sent_split.append("<mask>")
+                    #     else:
+                    #         mask_sent_split.append(word)
+                    # masked_sentence = " ".join(mask_sent_split)
+                    # sentence_emb, words = self._process_sentences([masked_sentence])
+                    # masked_article.append({
+                    #     'sentence': sentence,
+                    #     'sentence_emb': sentence_emb,
+                    #     'sentence_words': words,
+                    #     'paragraph_idx': p_idx,
+                    #     'line_idx': l_idx
+                    # })
 
         return article, masked_article
     
@@ -136,7 +136,7 @@ class WikiS2vCorrectionBatch(Dataset):
                                 title = data['title'].lower()
                                 if (title in all_articles_lc) and (title != "oath of office") and (title != "punjabi language") and \
                                    (title != "surname") and (title != "florence la badie") and (title != "plasmodium") and (title != "anambra state") and \
-                                   (title != "norodom sihamoni"):
+                                   (title != "norodom sihamoni") and (title != "hefei"):
                                     text = data['text'][1:-1] # skip first and last paragraph
                                     sent_cnt = 0
                                     for paragraph in text:
@@ -151,7 +151,7 @@ class WikiS2vCorrectionBatch(Dataset):
                                             print('\tIndexError')
                         if len(article_dict) > 0:
                             pickle.dump(article_dict, open(self.batch_dir + folder + file.replace("wiki", "").replace(".bz2", "") + "_" + 'articles_wEmb.pickle', 'wb'))
-                            pickle.dump(masked_article_dict, open(self.batch_dir + folder + file.replace("wiki", "").replace(".bz2", "") + "_" + 'masked_articles_wEmb.pickle', 'wb'))
+                            # pickle.dump(masked_article_dict, open(self.batch_dir + folder + file.replace("wiki", "").replace(".bz2", "") + "_" + 'masked_articles_wEmb.pickle', 'wb'))
 
     def _process_sentences(self, sentences):
         sentences_emb = []
@@ -221,7 +221,7 @@ class WikiS2vCorrectionBatch(Dataset):
             for _ in range(num_of_files_in_epoch):
                 file = self.batch_files[self.batch_idx]
                 data = pickle.load(open(self.batch_dir+file+"_articles_wEmb.pickle", 'rb'))
-                data_masked = pickle.load(open(self.batch_dir+file+"_masked_articles_wEmb.pickle", 'rb'))
+                # data_masked = pickle.load(open(self.batch_dir+file+"_masked_articles_wEmb.pickle", 'rb'))
                 valid_cnt = 0 # first two document in batch file is mark always as test
                 for doc in data:
                     if valid_cnt < 2:
@@ -230,7 +230,7 @@ class WikiS2vCorrectionBatch(Dataset):
                     else:
                         batch_train_data.append(doc)
                     batch_full_data[doc] = data[doc]
-                    batch_full_mask_data[doc] = data_masked[doc]
+                    # batch_full_mask_data[doc] = data_masked[doc]
                 self.batch_idx += 1
                 if self.batch_idx >= len(self.batch_files):
                     self.batch_idx = 0
@@ -337,6 +337,7 @@ class WikiS2vCorrectionBatch(Dataset):
         mem_sentence_mask[0][0:min(len(sent), self.config['max_sent_len'])] = torch.tensor(0.0)
 
         rnd_order = random.choice([False, True])
+        rnd_order = True # <-----------------------------------
         sent_order[0] = rnd_order
         if rnd_order:
             sent = batch_data[rnd_mem_sent_idx+1]['sentence_emb'][0]
@@ -365,7 +366,7 @@ class WikiS2vCorrectionBatch(Dataset):
         if self.config['training']['memory_sentence_pos'] == "rnd":
             rnd_input_sent_idx = random.randint(0, len(batch_data)-2)
         elif self.config['training']['memory_sentence_pos'] == "-1":
-            rnd_input_sent_idx = rnd_mem_sent_idx + 1
+            rnd_input_sent_idx = rnd_mem_sent_idx + 2
         # rnd_input_sent_idx = rnd_mem_sent_idx
         # rnd_input_sent_idx = rnd_mem_sent_idx + self.config['num_mem_sents']
         # if rnd_input_sent_idx in range(rnd_mem_sent_idx, rnd_mem_sent_idx+self.config['num_mem_sents']):
