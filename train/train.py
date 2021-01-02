@@ -13,6 +13,7 @@ from tqdm import tqdm
 import numpy as np
 
 print(int(sys.argv[1]))
+config_idx = int(sys.argv[1])
 config = configs[int(sys.argv[1])]
 
 if config['training']['log']:
@@ -51,15 +52,50 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
         # mem_s2v = torch.nn.functional.normalize(mem_s2v, dim=1)
         # pred_loss += torch.sum(torch.abs(torch.mean(mem_s2v, axis=0)))*1e-6
 
+        sent_pred2 = model_output['sent2']
+        sent_pred2 = torch.nn.functional.normalize(sent_pred2, dim=2)
+        pred_loss_s2 = torch.sum(torch.mean(torch.pow(sent_pred2[:, 0:-1] - label_sent[:, 1:], 2), dim=2) * \
+                             (1-label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))) / \
+                       torch.sum(1- label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))
+        pred_loss_s2 *= 1e4
+        pred_loss += pred_loss_s2
+
+        # sent_pred3 = model_output['sent3']
+        # sent_pred3 = torch.nn.functional.normalize(sent_pred3, dim=2)
+        # pred_loss_s3 = torch.sum(torch.mean(torch.pow(sent_pred3[:, 0:-2] - label_sent[:, 2:], 2), dim=2) * \
+        #                      (1-label_sent_mask[:, 2:].type(torch.cuda.FloatTensor))) / \
+        #                torch.sum(1- label_sent_mask[:, 2:].type(torch.cuda.FloatTensor))
+        # pred_loss_s3 *= 1e4
+        # pred_loss += pred_loss_s3
+
+        if config['training']['sent_diff_loss']:
+            sent2_pred = model_output['sent2']
+            sent2_pred = torch.nn.functional.normalize(sent2_pred, dim=2)
+            # sdiff_loss = torch.sum(torch.mean(torch.pow(sent_pred - sent2_pred, 2), dim=2) * \
+            # if we have memory from other document than the sent_pred should not be improved
+            # sent_ = torch.nn.functional.normalize(sent, dim=2)
+            sdiff_loss = torch.sum(torch.mean(torch.pow(sent2_pred - label_sent, 2), dim=2) * \
+                                (1-label_sent_mask.type(torch.cuda.FloatTensor))) / \
+                        torch.sum(1- label_sent_mask.type(torch.cuda.FloatTensor))
+            # sdiff_loss *= -1e4
+            sdiff_loss *= 1e4
+            # thr = -0.1
+            # if config_idx > 345:
+            #     thr = -0.05
+            # if config_idx > 347:
+            #     thr = -0.1
+            # sdiff_loss = torch.nn.functional.threshold(sdiff_loss, thr, thr)
+            pred_loss += torch.nn.functional.threshold(pred_loss - sdiff_loss, -0.1, -0.1)
+
         # if mem_s2v.shape[0] == config['batch_size']:
         #     mem_s2v = mem_s2v.reshape(sent.shape[0]*config['num_mem_sents'], mem_s2v.shape[2])
         #     mem_v_size = mem_s2v.shape[0]//2
         #     # pred_loss += torch.mean(torch.abs(cos(mem_s2v[:mem_v_size], mem_s2v[mem_v_size:])))*8e-5*(0.8**(epoch))
         #     pred_loss += torch.mean(torch.abs(cos(mem_s2v[:mem_v_size], mem_s2v[mem_v_size:])))*8e-5
 
-        if mem_s2v.shape[0] == config['batch_size']:
-            ord_loss = criterion(model_output['order'], sent_order)
-            pred_loss += ord_loss
+        # if mem_s2v.shape[0] == config['batch_size']:
+        #     ord_loss = criterion(model_output['order'], sent_order)
+        #     pred_loss += ord_loss
 
         if batch_idx % 700 == 0:
             print(mem_s2v)
@@ -95,11 +131,11 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
         if scheduler:
             scheduler.step()
 
-        if mem_s2v.shape[0] == config['batch_size']:
-            _, pred_idx = torch.max(model_output['order'], 1)
-            label_idx = sent_order
-            ord_total += sent_order.size(0)
-            ord_correct += (pred_idx == label_idx).sum().item()
+        # if mem_s2v.shape[0] == config['batch_size']:
+        #     _, pred_idx = torch.max(model_output['order'], 1)
+        #     label_idx = sent_order
+        #     ord_total += sent_order.size(0)
+        #     ord_correct += (pred_idx == label_idx).sum().item()
 
         # pbar.set_description("L" + str(round(float(pred_loss.detach()*1000), 4)))
         pbar.set_description("L" + str(round(float(pred_loss.detach()), 4)))
@@ -112,7 +148,7 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
     print('\t\tTraining time: {:.2f}'.format((end - start)))
     if config['training']['log']:
         writer.add_scalar('loss/train', train_loss, epoch)
-        writer.add_scalar('ord_acc/train', 100.0*ord_correct/ord_total, epoch)
+        # writer.add_scalar('ord_acc/train', 100.0*ord_correct/ord_total, epoch)
         writer.flush()
 
 def test(model, device, test_loader, epoch):
@@ -151,7 +187,8 @@ def sentence_score_prediction(model, device, dataset):
         input_sent_idx = 0
         input_sent, input_sent_mask = dataset.get_sentence(title_idx, input_sent_idx)
         lines = []
-        for _ in range(0, 100):
+        pbar = tqdm(total=400, dynamic_ncols=True)
+        for _ in range(0, 400):
             cnt = 0
             for prob_sent in dataset.get_sentences_from_doc(title_idx):
                 if prob_sent['idx'] != input_sent_idx:
@@ -180,6 +217,7 @@ def sentence_score_prediction(model, device, dataset):
                     else:
                         lines[cnt]['score'] += float(pred_loss)
                     cnt += 1
+            pbar.update(1)
         max_score = -1e6
         min_score = 1e6
         for line in lines:
@@ -197,7 +235,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # model
 model = SentenceEncoder(config)
-# restore_name = 'b24sL32_Adamlr0.0002s10g0.75_gTr1.mha16.ffn256.gateF.poolmeanmha.s2v2048_mTr4idr0.0.mhaFalse.ffn256.hdr0.0.postNorm.fh.mGateTanhT_memTrue=rnd.cnt1_trs2v0.0.g0.0_maskF0Falsedr0.3_v15_memLoss1e-5_normloss_trDoc40_202'
+# restore_name = 'b24sL32_Adamlr0.0001s10g0.75_gTr1.dr0.05.mha16.ffn256.gateF.poolmeanmha.s2v2048_mTr8idr0.0.mhaFalse.ffn512.hdr0.05.poNorm.fi.mGateTanhF.mResF.gateF_memFalse=-1.cnt1_trs2v0.0.g0.0_maskF0Falsedr0.3.sdiffT_v28_sOrd_1wmask_sdifOthDocGrDoc.1_nloss_trD40_353'
 # checkpoint = torch.load('./train/save/'+restore_name)
 # model.load_state_dict(checkpoint['model_state_dict'])
 print(model)
@@ -216,6 +254,7 @@ data_loader_test = torch.utils.data.DataLoader(
     shuffle=False, num_workers=0)
 
 # sentence_score_prediction(model, device, dataset_test)
+# exit(0)
 
 if config['training']['optimizer'] == "Adam":
     optimizer = optim.Adam(model.parameters(), lr=config['training']['lr'])
