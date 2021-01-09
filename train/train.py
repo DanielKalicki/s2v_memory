@@ -30,7 +30,7 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
     start = time.time()
     pbar = tqdm(total=len(train_loader), dynamic_ncols=True)
     # cos = torch.nn.CosineSimilarity(dim=1, eps=1e-6)
-    criterion = torch.nn.CrossEntropyLoss()
+    criterion_order = torch.nn.CrossEntropyLoss()
     for batch_idx, (sent, sent_mask, mem_sent, mem_sent_mask, label_sent, label_sent_mask, sent_order) in enumerate(train_loader):
         sent, sent_mask = sent.to(device), sent_mask.to(device)
         mem_sent, mem_sent_mask = mem_sent.to(device), mem_sent_mask.to(device)
@@ -52,13 +52,13 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
         # mem_s2v = torch.nn.functional.normalize(mem_s2v, dim=1)
         # pred_loss += torch.sum(torch.abs(torch.mean(mem_s2v, axis=0)))*1e-6
 
-        sent_pred2 = model_output['sent2']
-        sent_pred2 = torch.nn.functional.normalize(sent_pred2, dim=2)
-        pred_loss_s2 = torch.sum(torch.mean(torch.pow(sent_pred2[:, 0:-1] - label_sent[:, 1:], 2), dim=2) * \
-                             (1-label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))) / \
-                       torch.sum(1- label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))
-        pred_loss_s2 *= 1e4
-        pred_loss += pred_loss_s2
+        # sent_pred2 = model_output['sent2']
+        # sent_pred2 = torch.nn.functional.normalize(sent_pred2, dim=2)
+        # pred_loss_s2 = torch.sum(torch.mean(torch.pow(sent_pred2[:, 0:-1] - label_sent[:, 1:], 2), dim=2) * \
+        #                      (1-label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))) / \
+        #                torch.sum(1- label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))
+        # pred_loss_s2 *= 1e4
+        # pred_loss += pred_loss_s2
 
         # sent_pred3 = model_output['sent3']
         # sent_pred3 = torch.nn.functional.normalize(sent_pred3, dim=2)
@@ -67,6 +67,13 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
         #                torch.sum(1- label_sent_mask[:, 2:].type(torch.cuda.FloatTensor))
         # pred_loss_s3 *= 1e4
         # pred_loss += pred_loss_s3
+
+        s2v_in = model_output['s2v'][0]
+        s2v_in = torch.nn.functional.normalize(s2v_in, dim=1)
+        s2v_out = model_output['s2v'][1]
+        s2v_out = torch.nn.functional.normalize(s2v_out, dim=1)
+        s2v_loss = torch.sum(torch.mean(torch.pow(s2v_in - s2v_out, 2), dim=1))
+        pred_loss += s2v_loss*1e4
 
         if config['training']['sent_diff_loss']:
             sent2_pred = model_output['sent2']
@@ -94,11 +101,12 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
         #     pred_loss += torch.mean(torch.abs(cos(mem_s2v[:mem_v_size], mem_s2v[mem_v_size:])))*8e-5
 
         # if mem_s2v.shape[0] == config['batch_size']:
-        #     ord_loss = criterion(model_output['order'], sent_order)
+        #     ord_loss = criterion_order(model_output['order'], sent_order)
         #     pred_loss += ord_loss
 
         if batch_idx % 700 == 0:
             print(mem_s2v)
+            print(s2v_loss*1e4)
         train_loss += pred_loss.detach()
 
         pred_loss.backward(retain_graph=True)
@@ -154,6 +162,7 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
 def test(model, device, test_loader, epoch):
     model.eval()
     test_loss = 0.0
+    test_loss_s2v = 0.0
     # criterion = torch.nn.MSELoss()
     with torch.no_grad():
         for batch_idx, (sent, sent_mask, mem_sent, mem_sent_mask, label_sent, label_sent_mask, _) in enumerate(test_loader):
@@ -173,30 +182,35 @@ def test(model, device, test_loader, epoch):
             pred_loss *= 1e4
             test_loss += pred_loss.detach()
 
+            s2v_in = model_output['s2v'][0]
+            s2v_in = torch.nn.functional.normalize(s2v_in, dim=1)
+            s2v_out = model_output['s2v'][1]
+            s2v_out = torch.nn.functional.normalize(s2v_out, dim=1)
+            s2v_loss = torch.sum(torch.mean(torch.pow(s2v_in - s2v_out, 2), dim=1))
+            test_loss_s2v += s2v_loss*1e4
+
     test_loss /= batch_idx + 1
+    test_loss_s2v /= batch_idx + 1
     if config['training']['log']:
         writer.add_scalar('loss/test', test_loss, epoch)
+        writer.add_scalar('loss/test_loss_s2v', test_loss_s2v, epoch)
         writer.flush()
     print('\t\tTest set: Average loss: {:.6f}'.format(test_loss))
     return test_loss
 
 def sentence_score_prediction(model, device, dataset):
     model.eval()
+    title_idx = 7
     with torch.no_grad():
-        title_idx = 5
-        input_sent_idx = 0
-        input_sent, input_sent_mask = dataset.get_sentence(title_idx, input_sent_idx)
-        lines = []
-        pbar = tqdm(total=400, dynamic_ncols=True)
-        for _ in range(0, 400):
-            cnt = 0
-            for prob_sent in dataset.get_sentences_from_doc(title_idx):
-                if prob_sent['idx'] != input_sent_idx:
-                    mem_sent = prob_sent['emb']
-                    mem_sent_mask = prob_sent['mask']
-                    sent, sent_mask = input_sent.to(device), input_sent_mask.to(device)
-                    mem_sent, mem_sent_mask = mem_sent.to(device), mem_sent_mask.to(device)
-                    label_sent, label_sent_mask = input_sent.to(device), input_sent_mask.to(device)
+        memory_sentences_score = {}
+        document_sentences = dataset.get_sentences_from_doc(title_idx)
+        pbar = tqdm(total=len(document_sentences), dynamic_ncols=True)
+        for input_sent in document_sentences:
+            for doc_sent in document_sentences:
+                if doc_sent['idx'] != input_sent['idx']:
+                    sent, sent_mask = input_sent['emb'][:, 0].to(device), input_sent['mask'][:, 0].to(device)
+                    label_sent, label_sent_mask = input_sent['label'][:, 0].to(device), input_sent['label_mask'][:, 0].to(device)
+                    mem_sent, mem_sent_mask = doc_sent['emb'].to(device), doc_sent['mask'].to(device)
 
                     drop_mask = torch.from_numpy(
                         np.random.binomial(1, 1-config['training']['input_drop'],
@@ -212,30 +226,28 @@ def sentence_score_prediction(model, device, dataset):
                     pred_loss = torch.sum(torch.mean(torch.pow(sent_pred - label_sent, 2), dim=2) * \
                                         (1-label_sent_mask.type(torch.cuda.FloatTensor))) / \
                                 torch.sum(1-label_sent_mask.type(torch.cuda.FloatTensor))
-                    if len(lines) == cnt:
-                        lines.append({'score': float(pred_loss), 'text': prob_sent['text']})
+                    if doc_sent['idx'] not in memory_sentences_score:
+                        memory_sentences_score[doc_sent['idx']] = {'score': float(pred_loss), 'text': doc_sent['text']}
                     else:
-                        lines[cnt]['score'] += float(pred_loss)
-                    cnt += 1
+                        memory_sentences_score[doc_sent['idx']]['score'] += float(pred_loss)
             pbar.update(1)
         max_score = -1e6
         min_score = 1e6
-        for line in lines:
-            if line['score'] > max_score:
-                max_score = line['score']
-            if line['score'] < min_score:
-                min_score = line['score']
-        for line in lines:
-            norm_score = round(100-(line['score']-min_score)/(max_score-min_score)*100)
-            print(str(norm_score) + "\t" + line['text'])
-
+        for sentence in memory_sentences_score.values():
+            if sentence['score'] > max_score:
+                max_score = sentence['score']
+            if sentence['score'] < min_score:
+                min_score = sentence['score']
+        for sentence in memory_sentences_score.values():
+            norm_score = round(100-(sentence['score']-min_score)/(max_score-min_score)*100)
+            print(str(norm_score) + "\t" + sentence['text'])
     exit(0)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # model
 model = SentenceEncoder(config)
-# restore_name = 'b24sL32_Adamlr0.0001s10g0.75_gTr1.dr0.05.mha16.ffn256.gateF.poolmeanmha.s2v2048_mTr8idr0.0.mhaFalse.ffn512.hdr0.05.poNorm.fi.mGateTanhF.mResF.gateF_memFalse=-1.cnt1_trs2v0.0.g0.0_maskF0Falsedr0.3.sdiffT_v28_sOrd_1wmask_sdifOthDocGrDoc.1_nloss_trD40_353'
+# restore_name = 'b24sL32_Adamlr0.0001s10g0.75_gTr1.dr0.0.mha16.ffn256.gateF.poolmeanmha.s2v2048_mTr4idr0.0.mhaFalse.ffn2048.hdr0.0.poNorm.fi.mGateTanhF.mResF.gateF_memTrue=-1.cnt1_trs2v0.0.g0.0_maskF0Falsedr0.0.sdiffF_v28_nW_nloss_trD40_4xDense4k_2s_nDocs_508'
 # checkpoint = torch.load('./train/save/'+restore_name)
 # model.load_state_dict(checkpoint['model_state_dict'])
 print(model)
@@ -254,7 +266,6 @@ data_loader_test = torch.utils.data.DataLoader(
     shuffle=False, num_workers=0)
 
 # sentence_score_prediction(model, device, dataset_test)
-# exit(0)
 
 if config['training']['optimizer'] == "Adam":
     optimizer = optim.Adam(model.parameters(), lr=config['training']['lr'])
