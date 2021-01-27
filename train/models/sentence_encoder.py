@@ -358,8 +358,8 @@ class SentenceEncoder(nn.Module):
         # self.fc_2_dense_ = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=4096, output_dim=self.word_edim, cat_dim=2)
         # self.fc_3_dense_ = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=4096, output_dim=self.word_edim, cat_dim=2)
 
-        self.fc_1 = nn.Linear(self.s2v_dim*4, 512)
-        self.fc_2 = nn.Linear(512, 2)
+        # self.fc_1 = nn.Linear(self.s2v_dim*4, 512)
+        # self.fc_2 = nn.Linear(512, 2)
 
         # self.sent1_fc1 = nn.Linear(self.word_edim, self.word_edim)
         # self.sent1_fc1 = nn.Linear(self.word_edim, 2048)
@@ -416,7 +416,7 @@ class SentenceEncoder(nn.Module):
               (torch.sum((1-sent_mask_exp), axis=1) + 1e-6)
         return s2v
 
-    def _sent_nextw(self, sent, mem_s2v, sent_mask=None, word_pos=1):
+    def _sent_nextw(self, sent, mem_s2v, sent_mask=None):
         sent = self.mlm_in_dr(sent)
         sent = sent.permute((1, 0, 2))
 
@@ -428,21 +428,9 @@ class SentenceEncoder(nn.Module):
         mem_s2v = torch.cat([mem_s2v.unsqueeze(0)]*sent.shape[0], dim=0)
         sent = torch.cat((sent, mem_s2v), dim=2)
 
-        if word_pos == 1:
-            sent = self.fc_1_dense(sent)
-            sent = torch.cat((sent, mem_s2v), dim=2)
-            sent = self.fc_2_dense(sent)
-            # sent = torch.cat((sent, mem_s2v), dim=2)
-            # sent = self.fc_3_dense(sent)
-            # sent = torch.cat((sent, mem_s2v), dim=2)
-            # sent = self.fc_4_dense(sent)
-        else:
-            # sent = self.fc_1_dense_(sent)
-            # sent = torch.cat((sent, mem_s2v), dim=2)
-            # sent = self.fc_2_dense_(sent)
-            # sent = torch.cat((sent, mem_s2v), dim=2)
-            # sent = self.fc_3_dense_(sent)
-            pass
+        sent = self.fc_1_dense(sent)
+        sent = torch.cat((sent, mem_s2v), dim=2)
+        sent = self.fc_2_dense(sent)
 
         # sent = self.mlm_mtr(sent, src_key_padding_mask=sent_mask)
         sent = sent[:, :, 0:self.word_edim]
@@ -462,19 +450,19 @@ class SentenceEncoder(nn.Module):
         mem_s2v = mem_s2v.reshape(sent.shape[0], 3, mem_s2v.shape[1])
         mem_sent_mask = mem_sent_mask.reshape(sent.shape[0], 3, mem_sent_mask.shape[1])
 
-        sent = self._sent_nextw(sent, mem_s2v[:, 1], sent_mask=sent_mask, word_pos=1)
-        # sent2 = self._sent_nextw(sent, mem_s2v[:, 1], sent_mask=sent_mask[:, 1], word_pos=2)
+        sent = self._sent_nextw(sent, mem_s2v[:, 1], sent_mask=sent_mask)
+        sent2 = self._sent_nextw(sent, mem_s2v[:, 1], sent_mask=sent_mask[:, 1])
 
-        s2v_out = self._emb_in_sent(sent, mem_s2v=mem_s2v[:, 1], sent_mask=sent_mask, output=True)
+        # s2v_out = self._emb_in_sent(sent, mem_s2v=mem_s2v[:, 1], sent_mask=sent_mask, output=True)
 
-        order = self.fc_1(torch.cat((mem_s2v[:, 0], mem_s2v[:, 1], torch.abs(mem_s2v[:, 0]-mem_s2v[:, 1]), mem_s2v[:, 0]*mem_s2v[:, 1]), dim=1))
-        order = F.gelu(order)
-        order = self.fc_2(order)
+        # order = self.fc_1(torch.cat((mem_s2v[:, 0], mem_s2v[:, 1], torch.abs(mem_s2v[:, 0]-mem_s2v[:, 1]), mem_s2v[:, 0]*mem_s2v[:, 1]), dim=1))
+        # order = F.gelu(order)
+        # order = self.fc_2(order)
 
         return {
             'mem_s2v': mem_s2v,
             'sent': sent,
-            # 'sent2': sent2,
-            's2v': [s2v_in, s2v_out],
-            'order': order
+            'sent2': sent2
+            # 's2v': [s2v_in, s2v_out]
+            # 'order': order
         }

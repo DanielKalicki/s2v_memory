@@ -42,20 +42,6 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
         mem_s2v = model_output['mem_s2v']
 
         sent_pred = model_output['sent']
-
-        # print(sent_pred[0])
-        # print(sent[0])
-        # print(label_sent[0])
-        # print(label_sent_mask[0])
-        # print("---------------")
-        # exit(0)
-
-        # pred_loss_neg = torch.sum(torch.mean(torch.pow(sent_pred[:, :-1] - label_sent[:, 1:], 2), dim=2) * \
-        #                      (1-label_sent_mask[:, :-1].type(torch.cuda.FloatTensor))) / \
-        #                 torch.sum(1-label_sent_mask[:, :-1].type(torch.cuda.FloatTensor))
-        # pred_loss_neg2 = torch.sum(torch.mean(torch.pow(sent_pred[:, :-2] - label_sent[:, 2:], 2), dim=2) * \
-        #                      (1-label_sent_mask[:, :-2].type(torch.cuda.FloatTensor))) / \
-        #                 torch.sum(1-label_sent_mask[:, :-2].type(torch.cuda.FloatTensor))
         pred_loss_pos = torch.sum(torch.mean(torch.pow(sent_pred - label_sent, 2), dim=2) * \
                              (1-label_sent_mask.type(torch.cuda.FloatTensor))) / \
                         torch.sum(1-label_sent_mask.type(torch.cuda.FloatTensor))
@@ -68,23 +54,23 @@ def train(model, device, train_loader, optimizer, epoch, scheduler=None):
         pred_loss = pred_loss_pos - torch.nn.functional.threshold(-pred_loss_neg, -0.02, -0.02) \
                                   - torch.nn.functional.threshold(-pred_loss_neg2, -0.02, -0.02)
 
-        # sent2_pred = model_output['sent2']
-        # pred_loss_pos = torch.sum(torch.mean(torch.pow(sent2_pred[:, :-2] - label_sent[:, 2:], 2), dim=2) * \
-        #                      (1-label_sent_mask[:, 2:].type(torch.cuda.FloatTensor))) / \
-        #                 torch.sum(1-label_sent_mask[:, 2:].type(torch.cuda.FloatTensor))
-        # pred_loss_neg = torch.sum(torch.mean(torch.pow(sent2_pred[:, :-2] - label_sent[:, 2:], 2), dim=2) * \
-        #                      (1-label_sent_mask[:, 1:-1].type(torch.cuda.FloatTensor))) / \
-        #                 torch.sum(1-label_sent_mask[:, 1:-1].type(torch.cuda.FloatTensor))
-        # pred_loss_neg2 = torch.sum(torch.mean(torch.pow(sent2_pred[:, :-3] - label_sent[:, 3:], 2), dim=2) * \
-        #                      (1-label_sent_mask[:, 1:-2].type(torch.cuda.FloatTensor))) / \
-        #                 torch.sum(1-label_sent_mask[:, 1:-2].type(torch.cuda.FloatTensor))
-        # pred_loss += pred_loss_pos - torch.nn.functional.threshold(-pred_loss_neg, -0.02, -0.02) \
-        #                           - torch.nn.functional.threshold(-pred_loss_neg2, -0.02, -0.02)
-        # sent_pred2 = model_output['sent2']
-        # pred_loss_s2 = torch.sum(torch.mean(torch.pow(sent_pred2[:, 0:-1] - label_sent[:, 1:], 2), dim=2) * \
-        #                      (1-label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))) / \
-        #                torch.sum(1-label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))
-        # pred_loss += pred_loss_s2
+        sent2_pred = model_output['sent2']
+        pred_loss_pos = torch.sum(torch.mean(torch.pow(sent2_pred[:, :-1] - label_sent[:, 1:], 2), dim=2) * \
+                             (1-label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))) / \
+                        torch.sum(1-label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))
+        pred_loss_neg = torch.sum(torch.mean(torch.pow(sent2_pred[:, :-2] - label_sent[:, 2:], 2), dim=2) * \
+                             (1-label_sent_mask[:, 2:].type(torch.cuda.FloatTensor))) / \
+                        torch.sum(1-label_sent_mask[:, 2:].type(torch.cuda.FloatTensor))
+        pred_loss_neg2 = torch.sum(torch.mean(torch.pow(sent2_pred[:, :-3] - label_sent[:, 3:], 2), dim=2) * \
+                             (1-label_sent_mask[:, 3:].type(torch.cuda.FloatTensor))) / \
+                        torch.sum(1-label_sent_mask[:, 3:].type(torch.cuda.FloatTensor))
+        pred_loss += pred_loss_pos - torch.nn.functional.threshold(-pred_loss_neg, -0.02, -0.02) \
+                                   - torch.nn.functional.threshold(-pred_loss_neg2, -0.02, -0.02)
+
+        pred_loss_neg_in = torch.sum(torch.mean(torch.pow(sent_pred[:, 1:] - label_sent[:, :-1], 2), dim=2) * \
+                                (1-label_sent_mask[:, :-1].type(torch.cuda.FloatTensor))) / \
+                           torch.sum(1-label_sent_mask[:, :-1].type(torch.cuda.FloatTensor))
+        pred_loss += - torch.nn.functional.threshold(-pred_loss_neg_in, -0.04, -0.04)
 
         # s2v_in = model_output['s2v'][0]
         # s2v_out = model_output['s2v'][1]
@@ -137,18 +123,18 @@ def test(model, device, test_loader, epoch):
             label_sent, label_sent_mask = label_sent.to(device), label_sent_mask.to(device)
 
             model_output = model(sent, mem_sent, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask)
-            sent_pred = model_output['sent']
 
+            sent_pred = model_output['sent']
             pred_loss = torch.sum(torch.mean(torch.pow(sent_pred - label_sent, 2), dim=2) * \
                                  (1-label_sent_mask.type(torch.cuda.FloatTensor))) / \
                         torch.sum(1-label_sent_mask.type(torch.cuda.FloatTensor))
             test_loss += pred_loss.detach()
 
-            # sent_pred2 = model_output['sent2']
-            # pred_loss_s2 = torch.sum(torch.mean(torch.pow(sent_pred2[:, :-2] - label_sent[:, 2:], 2), dim=2) * \
-            #                         (1-label_sent_mask[:, 2:].type(torch.cuda.FloatTensor))) / \
-            #                torch.sum(1-label_sent_mask[:, 2:].type(torch.cuda.FloatTensor))
-            # test_s2_loss += pred_loss_s2.detach()
+            sent2_pred = model_output['sent2']
+            pred_loss_s2 = torch.sum(torch.mean(torch.pow(sent2_pred[:, :-1] - label_sent[:, 1:], 2), dim=2) * \
+                                (1-label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))) / \
+                            torch.sum(1-label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))
+            test_s2_loss += pred_loss_s2.detach()
 
             # s2v_in = model_output['s2v'][0]
             # s2v_out = model_output['s2v'][1]
@@ -233,15 +219,18 @@ data_loader_test = torch.utils.data.DataLoader(
 
 # sentence_score_prediction(model, device, dataset_test)
 
-if config['training']['optimizer'] == "Adam":
-    optimizer = optim.Adam(model.parameters(), lr=config['training']['lr'])
-if config['training']['optimizer'] == 'SAM':
-    optimizer = SAM(model.parameters(), optim.Adam, lr=config['training']['lr'])
+optimizer_warmup = optim.Adam(model.parameters(), lr=1e-5)
+optimizer = optim.Adam(model.parameters(), lr=config['training']['lr'])
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config['training']['lr_step'],
                                                        gamma=config['training']['lr_gamma'])
 test_loss = 1e6
 for epoch in range(start_epoch, config['training']['epochs'] + start_epoch):
-    train(model, device, data_loader_train, optimizer, epoch, None)
+    if epoch < config['training']['warmup']:
+        optimizer_ = optimizer_warmup
+    else:
+        optimizer_ = optimizer
+    train(model, device, data_loader_train, optimizer_, epoch, None)
+
     current_test_loss = test(model, device, data_loader_test, epoch)
     dataset_train.on_epoch_end()
     if current_test_loss < test_loss:
