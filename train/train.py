@@ -19,115 +19,130 @@ config = configs[int(sys.argv[1])]
 
 if config['training']['log']:
     now = datetime.now()
-    writer = SummaryWriter(log_dir="./train/logs/"+config['name'])
+    writer = [SummaryWriter(log_dir="./train/logs/"+config['name']), SummaryWriter(log_dir="./train/logs/"+config['name']+"_shMem")]
 
-def train(model, device, train_loader, optimizer, epoch, scheduler=None):
-    model.train()
-    train_loss = 0.0
-    mem_norm = 0.0
+def train(models, device, train_loader, optimizers, epoch, scheduler=None):
+    for model in models:
+        model.train()
+    train_loss = [0.0]*len(models)
+    mem_norm = [0.0]*len(models)
 
     start = time.time()
     pbar = tqdm(total=len(train_loader), dynamic_ncols=True)
     for batch_idx, (sent, sent_mask, mem_sent, mem_sent_mask, label_sent, label_sent_mask, next_sent, next_sent_mask) in enumerate(train_loader):
-        sent, sent_mask = sent.to(device), sent_mask.to(device)
-        mem_sent, mem_sent_mask = mem_sent.to(device), mem_sent_mask.to(device)
-        label_sent, label_sent_mask = label_sent.to(device), label_sent_mask.to(device)
-        next_sent, next_sent_mask = next_sent.to(device), next_sent_mask.to(device)
-        optimizer.zero_grad()
 
-        model_output = model(sent, mem_sent, next_sent, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask, nsent_mask=next_sent_mask)
-        mem_s2v = model_output['mem_s2v']
-
-        pred_loss = 0
-        for i in range(config['training']['num_predictions']):
-            sent_pred = model_output['sents'][i]
-            ii = i
-            if i == 0:
-                ii = -config['max_sent_len']
-            pred_loss_pos = torch.sum(torch.mean(torch.pow(sent_pred[:, :-ii] - label_sent[:, i:], 2), dim=2) * \
-                                     (1-label_sent_mask[:, i:].type(torch.cuda.FloatTensor))) / \
-                            torch.sum(1-label_sent_mask[:, i:].type(torch.cuda.FloatTensor))
-            pred_loss_neg = torch.sum(torch.mean(torch.pow(sent_pred[:, :-i-1] - label_sent[:, i+1:], 2), dim=2) * \
-                                     (1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor))) / \
-                            torch.sum(1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor))
-            pred_loss += pred_loss_pos - torch.nn.functional.threshold(-pred_loss_neg, -0.02, -0.02)
-        
-        sent_pred = model_output['sents'][0]
-        pred_loss_neg_in = torch.sum(torch.mean(torch.pow(sent_pred[:, 1:] - label_sent[:, :-1], 2), dim=2) * \
-                                    (1-label_sent_mask[:, :-1].type(torch.cuda.FloatTensor))) / \
-                           torch.sum(1-label_sent_mask[:, :-1].type(torch.cuda.FloatTensor))
-        pred_loss += - torch.nn.functional.threshold(-pred_loss_neg_in, -0.02, -0.02)
-
-        # s2v_norm_loss = torch.mean(torch.pow((torch.norm(sent_pred, dim=2)-torch.norm(label_sent, dim=2))/20.0, 4))
-        # mem_norm_loss = torch.mean(torch.pow((torch.norm(mem_s2v, dim=2)-13.0)/20.0, 4)) # 13 => norm of sent vectors
-        # pred_loss += mem_norm_loss + s2v_norm_loss
-        mem_norm += float(torch.mean(torch.norm(mem_s2v, dim=2)))
-
-        if batch_idx == 0:
-            print(mem_s2v[0:4])
-
-        train_loss += pred_loss.detach()
-
-        pred_loss.backward(retain_graph=True)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
-        optimizer.step()
-
-        if scheduler:
-            scheduler.step()
-
-        pbar.set_description("L" + str(round(float(pred_loss.detach()), 4)))
-        pbar.update(1)
-    pbar.close()
-    end = time.time()
-    train_loss /= batch_idx + 1
-    mem_norm /= batch_idx + 1
-    if math.isnan(float(train_loss)):
-        print("nan")
-        exit(0)
-    print("")
-    print('Epoch {}:\tTrain set: Average loss: {:.4f}'.format(epoch, train_loss))
-    print('\t\tTraining time: {:.2f}'.format((end - start)))
-    if config['training']['log']:
-        writer.add_scalar('loss/train', train_loss, epoch)
-        writer.add_scalar('loss/mem_norm', mem_norm, epoch)
-        writer.flush()
-
-def test(model, device, test_loader, epoch):
-    model.eval()
-    # test_loss = 0.0
-    # test_s2_loss = 0.0
-    # test_nsent_loss = 0.0
-    test_sent_loss = [0.0]*config['training']['num_predictions']
-    with torch.no_grad():
-        for batch_idx, (sent, sent_mask, mem_sent, mem_sent_mask, label_sent, label_sent_mask, next_sent, next_sent_mask) in enumerate(test_loader):
+        for idx, _ in enumerate(models):
             sent, sent_mask = sent.to(device), sent_mask.to(device)
             mem_sent, mem_sent_mask = mem_sent.to(device), mem_sent_mask.to(device)
             label_sent, label_sent_mask = label_sent.to(device), label_sent_mask.to(device)
             next_sent, next_sent_mask = next_sent.to(device), next_sent_mask.to(device)
+            optimizers[idx].zero_grad()
 
-            model_output = model(sent, mem_sent, next_sent, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask, nsent_mask=next_sent_mask)
+            if idx%2 == 1:
+                # mem_sent_ = torch.zeros_like(mem_sent).to(device)
+                mem_sent_ = mem_sent
+                np.random.shuffle(mem_sent_)
+                mem_sent_ = mem_sent_.to(device)
+            else:
+                mem_sent_ = mem_sent
+            model_output = models[idx](sent, mem_sent_, next_sent, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask, nsent_mask=next_sent_mask)
+            mem_s2v = model_output['mem_s2v']
 
+            pred_loss = 0
             for i in range(config['training']['num_predictions']):
                 sent_pred = model_output['sents'][i]
                 ii = i
                 if i == 0:
                     ii = -config['max_sent_len']
                 pred_loss_pos = torch.sum(torch.mean(torch.pow(sent_pred[:, :-ii] - label_sent[:, i:], 2), dim=2) * \
-                                    (1-label_sent_mask[:, i:].type(torch.cuda.FloatTensor))) / \
+                                        (1-label_sent_mask[:, i:].type(torch.cuda.FloatTensor))) / \
                                 torch.sum(1-label_sent_mask[:, i:].type(torch.cuda.FloatTensor))
                 pred_loss_neg = torch.sum(torch.mean(torch.pow(sent_pred[:, :-i-1] - label_sent[:, i+1:], 2), dim=2) * \
-                                    (1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor))) / \
+                                        (1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor))) / \
                                 torch.sum(1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor))
-                test_sent_loss[i] += pred_loss_pos - torch.nn.functional.threshold(-pred_loss_neg, -0.02, -0.02)
+                pred_loss += pred_loss_pos - torch.nn.functional.threshold(-pred_loss_neg, -0.02, -0.02)
+            
+            sent_pred = model_output['sents'][0]
+            pred_loss_neg_in = torch.sum(torch.mean(torch.pow(sent_pred[:, 1:] - label_sent[:, :-1], 2), dim=2) * \
+                                        (1-label_sent_mask[:, :-1].type(torch.cuda.FloatTensor))) / \
+                            torch.sum(1-label_sent_mask[:, :-1].type(torch.cuda.FloatTensor))
+            pred_loss += - torch.nn.functional.threshold(-pred_loss_neg_in, -0.02, -0.02)
 
-    for i in range(config['training']['num_predictions']):
-        test_sent_loss[i] /= batch_idx + 1
+            mem_norm[idx] += float(torch.mean(torch.norm(mem_s2v, dim=2)))
+
+            if batch_idx == 0:
+                print(mem_s2v[0:4, 0])
+
+            train_loss[idx] += pred_loss.detach()
+
+            pred_loss.backward(retain_graph=False)
+            torch.nn.utils.clip_grad_norm_(models[idx].parameters(), 0.1)
+            optimizers[idx].step()
+
+        # pbar.set_description("L" + str(round(float(pred_loss.detach()), 4)))
+        pbar.update(1)
+    pbar.close()
+    end = time.time()
+    for idx, _ in enumerate(models):
+        train_loss[idx] /= batch_idx + 1
+        mem_norm[idx] /= batch_idx + 1
+    if math.isnan(float(train_loss[0])):
+        print("nan")
+        exit(0)
+    print("")
+    # print('Epoch {}:\tTrain set: Average loss: {:.4f}'.format(epoch, train_loss))
+    print('Epoch {}:'.format(epoch))
+    print('\t\tTraining time: {:.2f}'.format((end - start)))
     if config['training']['log']:
+        for idx, _ in enumerate(models):
+            writer[idx].add_scalar('loss/train', train_loss[idx], epoch)
+            writer[idx].add_scalar('loss/mem_norm', mem_norm[idx], epoch)
+            writer[idx].flush()
+
+def test(models, device, test_loader, epoch):
+    for model in models:
+        model.eval()
+    test_sent_loss = []
+    for idx, _ in enumerate(models):
+        test_sent_loss.append([0.0]*config['training']['num_predictions'])
+    with torch.no_grad():
+        for batch_idx, (sent, sent_mask, mem_sent, mem_sent_mask, label_sent, label_sent_mask, next_sent, next_sent_mask) in enumerate(test_loader):
+            for idx, _ in enumerate(models):
+                sent, sent_mask = sent.to(device), sent_mask.to(device)
+                mem_sent, mem_sent_mask = mem_sent.to(device), mem_sent_mask.to(device)
+                label_sent, label_sent_mask = label_sent.to(device), label_sent_mask.to(device)
+                next_sent, next_sent_mask = next_sent.to(device), next_sent_mask.to(device)
+                if idx%2 == 1:
+                    # mem_sent_ = torch.zeros_like(mem_sent).to(device)
+                    mem_sent_ = mem_sent
+                    np.random.shuffle(mem_sent_)
+                    mem_sent_ = mem_sent_.to(device)
+                else:
+                    mem_sent_ = mem_sent
+                model_output = models[idx](sent, mem_sent_, next_sent, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask, nsent_mask=next_sent_mask)
+
+                for i in range(config['training']['num_predictions']):
+                    sent_pred = model_output['sents'][i]
+                    ii = i
+                    if i == 0:
+                        ii = -config['max_sent_len']
+                    pred_loss_pos = torch.sum(torch.mean(torch.pow(sent_pred[:, :-ii] - label_sent[:, i:], 2), dim=2) * \
+                                        (1-label_sent_mask[:, i:].type(torch.cuda.FloatTensor))) / \
+                                    torch.sum(1-label_sent_mask[:, i:].type(torch.cuda.FloatTensor))
+                    pred_loss_neg = torch.sum(torch.mean(torch.pow(sent_pred[:, :-i-1] - label_sent[:, i+1:], 2), dim=2) * \
+                                        (1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor))) / \
+                                    torch.sum(1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor))
+                    test_sent_loss[idx][i] += pred_loss_pos - torch.nn.functional.threshold(-pred_loss_neg, -0.02, -0.02)
+
+    for idx, _ in enumerate(models):
         for i in range(config['training']['num_predictions']):
-            writer.add_scalar('loss/test_sent_'+str(i), test_sent_loss[i], epoch)
-        writer.flush()
-    # print('\t\tTest set: Average loss: {:.6f}'.format(test_loss))
-    return test_sent_loss[0]
+            test_sent_loss[idx][i] /= batch_idx + 1
+    if config['training']['log']:
+        for idx, _ in enumerate(models):
+            for i in range(config['training']['num_predictions']):
+                writer[idx].add_scalar('loss/test_sent_'+str(i), test_sent_loss[idx][i], epoch)
+            writer[idx].flush()
+    return test_sent_loss[0][0]
 
 def sentence_score_prediction(model, device, dataset):
     model.eval()
@@ -184,10 +199,8 @@ start_epoch = 1
 # start_epoch += checkpoint['epoch']
 # del checkpoint
 
-# print([parameter if "mem_gtr" in name for name, parameter in model.named_parameters()])
-
-mem_paramters = [parameter for name, parameter in model.named_parameters() if "mem_gtr" in name]
-nword_pred_paramters = [parameter for name, parameter in model.named_parameters() if "mem_gtr" not in name]
+model_nmem = SentenceEncoder(config)
+model_nmem.to(device)
 
 dataset_train = WikiS2vCorrectionBatch(config)
 data_loader_train = torch.utils.data.DataLoader(
@@ -200,22 +213,16 @@ data_loader_test = torch.utils.data.DataLoader(
 
 # sentence_score_prediction(model, device, dataset_test)
 
-# optimizer_warmup = optim.Adam(model.parameters(), lr=1e-5)
-# optimizer = optim.Adam(model.parameters(), lr=config['training']['lr'])
-# optimizer_mem = optim.Adam(mem_paramters, lr=1e-5)
-optimizer_full = optim.Adam(model.parameters(), lr=config['training']['lr'])
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer_full, step_size=config['training']['lr_step'],
+optimizer = optim.Adam(model.parameters(), lr=config['training']['lr'])
+optimizer_nmem = optim.Adam(model_nmem.parameters(), lr=config['training']['lr'])
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config['training']['lr_step'],
                                                        gamma=config['training']['lr_gamma'])
+scheduler_nmem = torch.optim.lr_scheduler.StepLR(optimizer_nmem, step_size=config['training']['lr_step'],
+                                                                 gamma=config['training']['lr_gamma'])
 test_loss = 1e6
 for epoch in range(start_epoch, config['training']['epochs'] + start_epoch):
-    # if epoch%2 == 0:
-    #     optimizer_ = optimizer_mem
-    # else:
-    #     optimizer_ = optimizer_full
-    optimizer_ = optimizer_full
-    train(model, device, data_loader_train, optimizer_, epoch, None)
-
-    current_test_loss = test(model, device, data_loader_test, epoch)
+    train([model, model_nmem], device, data_loader_train, [optimizer, optimizer_nmem], epoch, None)
+    current_test_loss = test([model, model_nmem], device, data_loader_test, epoch)
     dataset_train.on_epoch_end()
     if current_test_loss < test_loss:
         test_loss = current_test_loss
@@ -226,7 +233,7 @@ for epoch in range(start_epoch, config['training']['epochs'] + start_epoch):
             # 'optimizer_state_dict': optimizer.state_dict(),
             'loss': test_loss
             }, './train/save/'+config['name'])
-    # if epoch%2 != 0:
+    scheduler_nmem.step()
     scheduler.step()
 
 if config['training']['log']:
