@@ -302,7 +302,7 @@ class SentenceEncoder(nn.Module):
         gtr_drop = config['sentence_encoder']['transformer']['dropout']
 
         if config['sentence_encoder']['transformer']['num_layers'] > 0:
-            self.mem_norm = nn.LayerNorm(self.word_edim)
+            # self.mem_norm = nn.LayerNorm(self.word_edim)
 
             mem_encoder_layer = GatedTransformerEncoderLayer(d_model=self.word_edim, nhead=gtr_num_head,
                                                         dim_feedforward=gtr_dim_feedforward,
@@ -338,7 +338,7 @@ class SentenceEncoder(nn.Module):
         mtr_hsent_drop = config['sentence_mlm']['transformer']['hidden_sentence_drop']
 
         # mlm_encoder_layer = MemoryTransformerEncoderLayer(d_model=self.word_edim, nhead=mtr_num_head,
-        #                                                   d_memory=self.s2v_dim*self.config['num_mem_sents'],
+        #                                                   d_memory=self.s2v_dim,
         #                                                   dim_feedforward=mtr_dim_feedforward,
         #                                                   dropout=mtr_drop, activation="gelu",
         #                                                   mha_enabled=mtr_mha_en,
@@ -349,15 +349,43 @@ class SentenceEncoder(nn.Module):
         #                                                   hidden_sentence_dropout=mtr_hsent_drop)
         # self.mlm_mtr = nn.TransformerEncoder(mlm_encoder_layer, num_layers=mtr_num_layers)
 
-        self.fc_1_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, cat_dim=2)
-        self.fc_2_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, cat_dim=2)
-        # self.fc_3_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, cat_dim=2)
+        self.fc1_dense = DenseLayer(input_dim=self.word_edim*2+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
+        self.gate1_ = nn.Linear(self.s2v_dim+self.s2v_dim, self.s2v_dim)
+        self.gate1 = nn.Linear(self.s2v_dim, self.s2v_dim)
+
+        self.fc2_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
+        self.gate2_ = nn.Linear(self.s2v_dim+self.s2v_dim, self.s2v_dim)
+        self.gate2 = nn.Linear(self.s2v_dim, self.s2v_dim)
+
+        # self.fc3_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
+        # self.gate3_ = nn.Linear(self.s2v_dim+self.s2v_dim, self.s2v_dim)
+        # self.gate3 = nn.Linear(self.s2v_dim, self.s2v_dim)
+        # self.fc_3_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
         # self.fc_4_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=4096, output_dim=self.word_edim, cat_dim=2)
 
-        self.s2v_pred_fc = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, cat_dim=2)
+        # self.s2v_pred_fc = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, cat_dim=2)
 
-        self.fc1_nsent_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, cat_dim=1)
+        # self.fc1_nsent_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, cat_dim=1)
         # self.fc2_nsent_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, cat_dim=1)
+
+        # self.fc1_linear1 = nn.Linear(self.word_edim+self.s2v_dim, 1024)
+        # self.fc1_linear2 = nn.Linear(1024, self.word_edim)
+
+        # self.fc2_linear1 = nn.Linear(self.word_edim+self.s2v_dim, 1024)
+        # self.fc2_linear2 = nn.Linear(1024, self.word_edim)
+
+        # self.fc3_linear1 = nn.Linear(self.word_edim+self.s2v_dim, 1024)
+        # self.fc3_linear2 = nn.Linear(1024, self.word_edim)
+
+        # self.fc4_linear1 = nn.Linear(self.word_edim+self.s2v_dim, 1024)
+        # self.fc4_linear2 = nn.Linear(1024, self.word_edim)
+
+        # self.fc1_norm = nn.LayerNorm(self.word_edim)
+        # self.fc2_norm = nn.LayerNorm(self.word_edim)
+        # self.fc3_norm = nn.LayerNorm(self.word_edim)
+        # self.fc4_norm = nn.LayerNorm(self.word_edim)
+
+        # self.lstm = torch.nn.LSTM(self.word_edim*2, self.s2v_dim*2, 1)
 
     def _emb_sent(self, sent, sent_mask=None):
         sent = self.mem_in_dr(sent)
@@ -365,7 +393,7 @@ class SentenceEncoder(nn.Module):
 
         if self.config['sentence_encoder']['transformer']['num_layers'] > 0:
             sent = self.mem_gtr(sent, src_key_padding_mask=sent_mask)
-            sent = self.mem_norm(sent)
+            # sent = self.mem_norm(sent)
 
         # sent = self.s2v_fc_1_dense(sent)
         # sent = self.s2v_fc_2_dense(sent)
@@ -403,20 +431,29 @@ class SentenceEncoder(nn.Module):
 
         mask = torch.ones((self.config['max_sent_len'], self.config['max_sent_len'],), dtype=torch.float)
         for i in range(0, self.config['max_sent_len']-1):
-            mask[i, 0:i+1] = torch.tensor(0.0)
+            mask[i, max(0, i-2):i+1] = torch.tensor(0.0)
         mask = mask.type(torch.cuda.FloatTensor)
 
-        mem_s2v = torch.cat([mem_s2v.unsqueeze(1)]*sent.shape[1], dim=1)
-        sent = torch.cat((sent, mem_s2v), dim=2)
+        mem_s2v = torch.cat([mem_s2v]*(sent.shape[1]//self.config['num_mem_sents']), dim=1)
 
-        sent = self.fc_1_dense(sent)
-        sent = torch.cat((sent, mem_s2v), dim=2)
-        sent = self.fc_2_dense(sent)
+        sent_pad_1 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
+        # sent_pad_2 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
 
-        # sent = self.mlm_mtr(sent, src_key_padding_mask=sent_mask)
-        sent = sent[:, :, 0:self.word_edim]
+        mem_s2v_ = mem_s2v * torch.tanh(torch.abs(self.gate1(F.gelu(self.gate1_(torch.cat((sent, mem_s2v), dim=2))))))
+        sent = torch.cat((sent, sent_pad_1[:, :-1]), dim=2)
+        sent = torch.cat((sent, mem_s2v_), dim=2)
+        sent = self.fc1_dense(sent)
+
+        mem_s2v_ = mem_s2v * torch.tanh(torch.abs(self.gate2(F.gelu(self.gate2_(torch.cat((sent, mem_s2v), dim=2))))))
+        sent = torch.cat((sent, mem_s2v_), dim=2)
+        sent = self.fc2_dense(sent)
 
         # sent = sent.permute((1, 0, 2))
+        # sent = self.mlm_mtr(sent, mask=mask)
+        # sent = sent.permute((1, 0, 2))
+
+        # sent = sent[:, :, 0:self.word_edim]
+
         return sent
 
     def _nsent_pred(self, sent, mem):
@@ -425,8 +462,8 @@ class SentenceEncoder(nn.Module):
         return sent
 
     def forward(self, sent, mem_sent, nsent, sent_mask=None, mem_sent_mask=None, nsent_mask=None):
-        sent_s2v = self._mean_s2v(sent, sent_mask=sent_mask)
-        nsent_s2v = self._mean_s2v(nsent, sent_mask=nsent_mask)
+        # sent_s2v = self._mean_s2v(sent, sent_mask=sent_mask)
+        # nsent_s2v = self._mean_s2v(nsent, sent_mask=nsent_mask)
 
         mem_sent = mem_sent.reshape(mem_sent.shape[0]*mem_sent.shape[1], mem_sent.shape[2], mem_sent.shape[3])
         mem_sent_mask = mem_sent_mask.reshape(mem_sent_mask.shape[0]*mem_sent_mask.shape[1],
@@ -434,18 +471,18 @@ class SentenceEncoder(nn.Module):
 
         mem_s2v = self._emb_sent(mem_sent, sent_mask=mem_sent_mask)
 
-        mem_s2v = mem_s2v.reshape(sent.shape[0], 1, mem_s2v.shape[1])
-        mem_sent_mask = mem_sent_mask.reshape(sent.shape[0], 1, mem_sent_mask.shape[1])
+        mem_s2v = mem_s2v.reshape(sent.shape[0], self.config['num_mem_sents'], mem_s2v.shape[1])
+        mem_sent_mask = mem_sent_mask.reshape(sent.shape[0], self.config['num_mem_sents'], mem_sent_mask.shape[1])
 
         sents = []
         for _ in range(self.config['training']['num_predictions']):
-            sent = self._sent_nextw(sent, mem_s2v[:, 0], sent_mask=sent_mask)
+            sent = self._sent_nextw(sent, mem_s2v, sent_mask=sent_mask)
             sents.append(sent)
 
-        nsent_s2v_pred = self._nsent_pred(sent_s2v, mem_s2v[:, 0])
+        # nsent_s2v_pred = self._nsent_pred(sent_s2v, mem_s2v[:, 0])
 
         return {
             'mem_s2v': mem_s2v,
-            'sents': sents,
-            'nsent_s2v': [nsent_s2v_pred, nsent_s2v, sent_s2v]
+            'sents': sents
+            # 'nsent_s2v': [nsent_s2v_pred, nsent_s2v, sent_s2v]
         }
