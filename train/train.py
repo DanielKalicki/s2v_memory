@@ -21,25 +21,41 @@ if config['training']['log']:
     now = datetime.now()
     writer = [SummaryWriter(log_dir="./train/logs/"+config['name']), SummaryWriter(log_dir="./train/logs/"+config['name']+"_mem0")]
 
+class LabelSmoothingCrossEntropy(torch.nn.Module):
+    # based on https://github.com/seominseok0429/label-smoothing-visualization-pytorch
+    def __init__(self):
+        super(LabelSmoothingCrossEntropy, self).__init__()
+    def forward(self, x, target, smoothing=0.2):
+        confidence = 1. - smoothing
+        logprobs = F.log_softmax(x, dim=-1)
+        nll_loss = -logprobs.gather(dim=-1, index=target.unsqueeze(1))
+        nll_loss = nll_loss.squeeze(1)
+        smooth_loss = -logprobs.mean(dim=-1)
+        loss = confidence * nll_loss + smoothing * smooth_loss
+        return loss
+
 def train(models, device, train_loader, optimizers, epoch, scheduler=None):
     for model in models:
         model.train()
     train_loss = [0.0]*len(models)
     mem_norm = [0.0]*len(models)
 
+    total = [1e-6]*len(models)
+    correct = [0.0]*len(models)
+
     start = time.time()
     pbar = tqdm(total=len(train_loader), dynamic_ncols=True)
-    for batch_idx, (sent, sent_mask, mem_sent, mem_sent_mask, label_sent, label_sent_mask, next_sent, next_sent_mask) in enumerate(train_loader):
+    criterion = LabelSmoothingCrossEntropy()
+    for batch_idx, (sent, sent_mask, mem_sent, mem_sent_mask, label_sent_, label_sent_mask, label_class) in enumerate(train_loader):
 
         for idx, _ in enumerate(models):
             sent, sent_mask = sent.to(device), sent_mask.to(device)
             mem_sent, mem_sent_mask = mem_sent, mem_sent_mask # mem_sent will be assing to device after shuffling
-            label_sent, label_sent_mask = label_sent.to(device), label_sent_mask.to(device)
-            next_sent, next_sent_mask = next_sent.to(device), next_sent_mask.to(device)
+            label_sent_, label_sent_mask = label_sent_.to(device), label_sent_mask.to(device)
+            label_class = label_class.to(device)
             optimizers[idx].zero_grad()
 
             if idx%2 == 1:
-                # mem_sent_ = torch.zeros_like(mem_sent).to(device)
                 mem_sent_ = mem_sent
                 # mem_sent_ = torch.cat((mem_sent[1:], mem_sent[0].unsqueeze(0)), dim=0)
                 mem_sent_[:, :, :] = 0.0
@@ -48,8 +64,22 @@ def train(models, device, train_loader, optimizers, epoch, scheduler=None):
                 mem_sent_ = mem_sent
             mem_sent_ = mem_sent_.to(device)
             mem_sent_mask = mem_sent_mask.to(device)
-            model_output = models[idx](sent, mem_sent_, next_sent, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask, nsent_mask=next_sent_mask)
+            model_output = models[idx](sent, mem_sent_, label_sent_, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask)
             mem_s2v = model_output['mem_s2v']
+            label_sent = model_output['lsent']
+            # label_sent = label_sent_
+            # pred_class = model_output['pred_class']
+
+            # pred_loss = 0.0
+            # for w_idx in range(config['max_sent_len']-1):
+            #     pred_loss += torch.sum(criterion(pred_class[:, w_idx], label_class[:, w_idx].to(torch.long), smoothing=0.2) * \
+            #                           (1-label_sent_mask[:, w_idx].type(torch.cuda.FloatTensor))) / \
+            #                  (torch.sum(1-label_sent_mask[:, w_idx].type(torch.cuda.FloatTensor)) + 1e-6)
+                
+            #     _, pred_idx = torch.max(pred_class[:, w_idx], 1)
+            #     label_idx = label_class[:, w_idx].to(torch.long)
+            #     total[idx] += float(torch.sum(1-label_sent_mask[:, w_idx].type(torch.cuda.FloatTensor)))
+            #     correct[idx] += float(((pred_idx == label_idx).type(torch.cuda.FloatTensor)*(1-label_sent_mask[:, w_idx].type(torch.cuda.FloatTensor))).sum().item())
 
             pred_loss = 0
             for i in range(config['training']['num_predictions']):
@@ -60,24 +90,37 @@ def train(models, device, train_loader, optimizers, epoch, scheduler=None):
 
                 pred_loss_pos = torch.sum(torch.mean(torch.pow(sent_pred[:, :-ii] - label_sent[:, i:], 2), dim=2) * \
                                         (1-label_sent_mask[:, i:].type(torch.cuda.FloatTensor))) / \
-                                torch.sum(1-label_sent_mask[:, i:].type(torch.cuda.FloatTensor))
-                pred_loss_neg = torch.sum(torch.mean(torch.pow(sent_pred[:, :-i-1] - label_sent[:, i+1:], 2), dim=2) * \
-                                        (1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor))) / \
-                                torch.sum(1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor))
-                pred_loss += pred_loss_pos - torch.nn.functional.threshold(-pred_loss_neg, -0.2, -0.2)
+                                (torch.sum(1-label_sent_mask[:, i:].type(torch.cuda.FloatTensor)) + 1e-6)
+                # pred_loss_neg = torch.sum(torch.mean(torch.pow(sent_pred[:, :-i-1] - label_sent[:, i+1:], 2), dim=2) * \
+                #                         (1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor))) / \
+                #                 (torch.sum(1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor)) + 1e-6)
+                if (batch_idx % 100 == 0):
+                    print(pred_loss_pos)
+                    # print(pred_loss_neg)
+                    print("----")
+                pred_loss += pred_loss_pos # - min(pred_loss_neg, 0.6) # torch.nn.functional.threshold(-pred_loss_neg, -0.2, -0.2)
             
-            sent_pred = model_output['sents'][0]
-            pred_loss_neg_in = torch.sum(torch.mean(torch.pow(sent_pred[:, 1:] - label_sent[:, :-1], 2), dim=2) * \
-                                        (1-label_sent_mask[:, :-1].type(torch.cuda.FloatTensor))) / \
-                            torch.sum(1-label_sent_mask[:, :-1].type(torch.cuda.FloatTensor))
-            pred_loss += - torch.nn.functional.threshold(-pred_loss_neg_in, -0.2, -0.2)
+            # sent_pred = model_output['sents'][0]
+            # pred_loss_neg_in = torch.sum(torch.mean(torch.pow(sent_pred[:, 1:] - label_sent[:, :-1], 2), dim=2) * \
+            #                             (1-label_sent_mask[:, :-1].type(torch.cuda.FloatTensor))) / \
+            #                 (torch.sum(1-label_sent_mask[:, :-1].type(torch.cuda.FloatTensor)) + 1e-6)
+            # pred_loss += - min(pred_loss_neg_in, 0.6)
 
             mem_norm[idx] += float(torch.mean(torch.norm(mem_s2v, dim=2)))
 
-            if batch_idx == 0:
-                print(mem_s2v[0:4, 0])
-                print(model_output['sents'][0][0, 5, :])
-                print(label_sent[0, 5, :])
+            # if (batch_idx == 0):
+            if (batch_idx%10 == 0):
+                # print(mem_s2v[0:4, 0])
+                # print(model_output['sents'][0][0, 5, 0:64])
+                # print(model_output['sents'][0][0, 6, 0:64])
+                # print("-----------")
+                # print(sent[0, 5, 0:64])
+                # print(sent[0, 6, 0:64])
+                # print(label_sent[0, 5, 0:64])
+                # print("---------")
+                # print(torch.max(pred_class[0, :], 1))
+                # print(label_class[0, :])
+                pass
 
             train_loss[idx] += pred_loss.detach()
 
@@ -103,6 +146,7 @@ def train(models, device, train_loader, optimizers, epoch, scheduler=None):
         writer[0].add_scalar('diff/train', train_loss[0]-train_loss[1], epoch)
         for idx, _ in enumerate(models):
             writer[idx].add_scalar('loss/train', train_loss[idx], epoch)
+            writer[idx].add_scalar('acc/train', 100*correct[idx]/total[idx], epoch)
             writer[idx].add_scalar('loss/mem_norm', mem_norm[idx], epoch)
             writer[idx].flush()
 
@@ -110,15 +154,20 @@ def test(models, device, test_loader, epoch):
     for model in models:
         model.eval()
     test_sent_loss = []
+    total = [1e-6]*len(models)
+    correct = [0.0]*len(models)
     for idx, _ in enumerate(models):
         test_sent_loss.append([0.0]*config['training']['num_predictions'])
+    criterion = LabelSmoothingCrossEntropy()
     with torch.no_grad():
-        for batch_idx, (sent, sent_mask, mem_sent, mem_sent_mask, label_sent, label_sent_mask, next_sent, next_sent_mask) in enumerate(test_loader):
+        for batch_idx, (sent, sent_mask, mem_sent, mem_sent_mask, label_sent_, label_sent_mask, label_class) in enumerate(test_loader):
             for idx, _ in enumerate(models):
                 sent, sent_mask = sent.to(device), sent_mask.to(device)
                 mem_sent, mem_sent_mask = mem_sent, mem_sent_mask # mem_sent will be assing to device after shuffling
-                label_sent, label_sent_mask = label_sent.to(device), label_sent_mask.to(device)
-                next_sent, next_sent_mask = next_sent.to(device), next_sent_mask.to(device)
+                label_sent_, label_sent_mask = label_sent_.to(device), label_sent_mask.to(device)
+                # next_sent, next_sent_mask = next_sent.to(device), next_sent_mask.to(device)
+                label_class = label_class.to(device)
+
                 if idx%2 == 1:
                     mem_sent_ = mem_sent
                     # mem_sent_ = torch.cat((mem_sent[1:], mem_sent[0].unsqueeze(0)), dim=0)
@@ -128,7 +177,20 @@ def test(models, device, test_loader, epoch):
                     mem_sent_ = mem_sent
                 mem_sent_ = mem_sent_.to(device)
                 mem_sent_mask = mem_sent_mask.to(device)
-                model_output = models[idx](sent, mem_sent_, next_sent, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask, nsent_mask=next_sent_mask)
+                model_output = models[idx](sent, mem_sent_, label_sent_, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask)
+                label_sent = model_output['lsent']
+                # label_sent = label_sent_
+                # pred_class = model_output['pred_class']
+
+                # for w_idx in range(config['max_sent_len']-1):
+                #     test_sent_loss[idx][0] += torch.sum(criterion(pred_class[:, w_idx], label_class[:, w_idx].to(torch.long), smoothing=0.2) * \
+                #                         (1-label_sent_mask[:, w_idx].type(torch.cuda.FloatTensor))) / \
+                #                 (torch.sum(1-label_sent_mask[:, w_idx].type(torch.cuda.FloatTensor)) + 1e-6)
+
+                #     _, pred_idx = torch.max(pred_class[:, w_idx], 1)
+                #     label_idx = label_class[:, w_idx].to(torch.long)
+                #     total[idx] += float(torch.sum(1-label_sent_mask[:, w_idx].type(torch.cuda.FloatTensor)))
+                #     correct[idx] += float(((pred_idx == label_idx).type(torch.cuda.FloatTensor)*(1-label_sent_mask[:, w_idx].type(torch.cuda.FloatTensor))).sum().item())
 
                 for i in range(config['training']['num_predictions']):
                     sent_pred = model_output['sents'][i]
@@ -137,11 +199,12 @@ def test(models, device, test_loader, epoch):
                         ii = -config['max_sent_len']
                     pred_loss_pos = torch.sum(torch.mean(torch.pow(sent_pred[:, :-ii] - label_sent[:, i:], 2), dim=2) * \
                                         (1-label_sent_mask[:, i:].type(torch.cuda.FloatTensor))) / \
-                                    torch.sum(1-label_sent_mask[:, i:].type(torch.cuda.FloatTensor))
-                    pred_loss_neg = torch.sum(torch.mean(torch.pow(sent_pred[:, :-i-1] - label_sent[:, i+1:], 2), dim=2) * \
-                                        (1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor))) / \
-                                    torch.sum(1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor))
-                    test_sent_loss[idx][i] += pred_loss_pos - torch.nn.functional.threshold(-pred_loss_neg, -0.2, -0.2)
+                                    (torch.sum(1-label_sent_mask[:, i:].type(torch.cuda.FloatTensor)) + 1e-6)
+                    # pred_loss_neg = torch.sum(torch.mean(torch.pow(sent_pred[:, :-i-1] - label_sent[:, i+1:], 2), dim=2) * \
+                    #                     (1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor))) / \
+                    #                 (torch.sum(1-label_sent_mask[:, i+1:].type(torch.cuda.FloatTensor)) + 1e-6)
+                    # # test_sent_loss[idx][i] += pred_loss_pos - torch.nn.functional.threshold(-pred_loss_neg, -0.2, -0.2)
+                    test_sent_loss[idx][i] += pred_loss_pos # - min(pred_loss_neg, 0.6) # torch.nn.functional.threshold(-pred_loss_neg, -0.2, -0.2)
 
     for idx, _ in enumerate(models):
         for i in range(config['training']['num_predictions']):
@@ -152,6 +215,7 @@ def test(models, device, test_loader, epoch):
         for idx, _ in enumerate(models):
             for i in range(config['training']['num_predictions']):
                 writer[idx].add_scalar('loss/test_sent_'+str(i), test_sent_loss[idx][i], epoch)
+                writer[idx].add_scalar('acc/test', 100*correct[idx]/total[idx], epoch)
             writer[idx].flush()
     return test_sent_loss[0][0]
 
@@ -240,7 +304,7 @@ data_loader_test = torch.utils.data.DataLoader(
     dataset_test, batch_size=config['batch_size'],
     shuffle=False, num_workers=0)
 
-sentence_score_prediction(model, device, dataset_test)
+# sentence_score_prediction(model, device, dataset_test)
 
 optimizer = optim.Adam(model.parameters(), lr=config['training']['lr'])
 optimizer_nmem = optim.Adam(model_nmem.parameters(), lr=config['training']['lr'])
@@ -259,9 +323,13 @@ for epoch in range(start_epoch, config['training']['epochs'] + start_epoch):
         torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
-            # 'optimizer_state_dict': optimizer.state_dict(),
             'loss': test_loss
             }, './train/save/'+config['name'])
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model_nmem.state_dict(),
+            'loss': test_loss
+            }, './train/save/'+config['name']+'_mem0')
     scheduler_nmem.step()
     scheduler.step()
 

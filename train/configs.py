@@ -66,312 +66,182 @@ for i in range(1000):
 
 i = 0
 # -----------------------------------------------------------------------------
-# i = 0
-for _ in range(0, 30):
-    configs[i]['sentence_encoder']['input_drop'] = 0.0
-    configs[i]['sentence_encoder']['transformer']['gate'] = False
-    if i in (12, 13, 16, 17, 18, 19, 20, 21):
-        configs[i]['sentence_encoder']['transformer']['num_layers'] = 3
-        configs[i]['sentence_encoder']['transformer']['gate'] = False
-    if i in (24, 25):
-        configs[i]['sentence_mlm']['transformer']['num_layers'] = 1
-    if i in (14, 15):
-        configs[i]['sentence_encoder']['transformer']['num_layers'] = 3
-        configs[i]['sentence_encoder']['transformer']['gate'] = True
-    configs[i]['sentence_encoder']['transformer']['dropout'] = 0.0
-    configs[i]['sentence_encoder']['transformer']['ffn_dim'] = 256
-    configs[i]['sentence_encoder']['transformer']['num_heads'] = 16
-
-    configs[i]['sentence_encoder']['pooling']['mha']['inner_dim'] = 2*1024
-    configs[i]['sentence_encoder']['pooling']['mha']['num_heads'] = 128
-    configs[i]['sentence_encoder']['pooling']['mha']['attention_dropout'] = 0.0
-
-    configs[i]['sentence_mlm']['input_drop'] = 0.0
-    if i == 11:
-        configs[i]['sentence_mlm']['input_drop'] = 0.1
-    configs[i]['sentence_mlm']['transformer']['num_layers'] = 4
-    configs[i]['sentence_mlm']['transformer']['dropout'] = 0.0
-    configs[i]['sentence_mlm']['transformer']['ffn_dim'] = 256
-    configs[i]['sentence_mlm']['transformer']['num_heads'] = 16
-    configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn input, ffn hidden, mha hidden'
-    if i == 18:
-        configs[i]['sentence_mlm']['transformer']['memory_position'] = ''
-    # if i == 0:
-    #     configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn input, ffn hidden, mha hidden'
-    # elif i == 1:
-    #     configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn input'
-    # elif i == 2:
-    #     configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
-    # elif i == 3:
-    #     configs[i]['sentence_mlm']['transformer']['memory_position'] = 'mha hidden'
-    # elif i == 4:
-    #     configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn input, ffn hidden'
-    configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop'] = 0.0
-    if i == 7:
-        configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop'] = 0.3
-    if i == 10:
-        configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop'] = 0.1
-
-    configs[i]['s2v_dim'] = 2*1024
-    configs[i]['max_sent_len'] = 32
-    configs[i]['batch_size'] = 24
-    configs[i]['use_memory'] = True
-    configs[i]['training']['set_mask_token_to_0'] = True
-    if i in (22, 23, 24, 25):
-        configs[i]['training']['set_mask_token_to_0'] = False
-    configs[i]['training']['memory_true_s2v_initial_rate'] = 0.0
-    configs[i]['training']['memory_true_s2v_initial_rate'] = 0.0
-    configs[i]['training']['memory_true_s2v_gamma'] = 0.0
-    if i == 19:
-        configs[i]['training']['memory_true_s2v_initial_rate'] = 1.0
-        configs[i]['training']['memory_true_s2v_gamma'] = 0.9
-    if i == 20:
-        configs[i]['training']['memory_true_s2v_initial_rate'] = 1.0
-        configs[i]['training']['memory_true_s2v_gamma'] = 0.95
-    if i == 21:
-        configs[i]['training']['memory_true_s2v_initial_rate'] = 1.0
-        configs[i]['training']['memory_true_s2v_gamma'] = 0.98
-    configs[i]['training']['memory_sentence_pos'] = "+1"
-    if i in (1, 9, 13, 15, 17, 18, 23):
-        configs[i]['use_memory'] = False
-        configs[i]['training']['memory_sentence_pos'] = ""
-    if i == 2:
-        configs[i]['use_memory'] = True
-        configs[i]['training']['memory_sentence_pos'] = "-1"
-    elif i == 3:
-        configs[i]['use_memory'] = True
-        configs[i]['training']['memory_sentence_pos'] = "rnd"
-    elif i == 4:
-        configs[i]['use_memory'] = True
-        configs[i]['training']['memory_sentence_pos'] = "sent0"
-    elif i == 5:
-        configs[i]['use_memory'] = True
-        configs[i]['training']['memory_sentence_pos'] = "maskSent"
-    elif i == 6:
-        configs[i]['use_memory'] = True
-        configs[i]['training']['memory_sentence_pos'] = "noise"
-
-    configs[i]['training']['optimizer'] = 'Adam'
-    if i in (8, 9):
-        configs[i]['training']['optimizer'] = 'SAM'
-    configs[i]['training']['lr'] = 4e-4
-    if i in (16, 17):
-        configs[i]['training']['lr'] = 8e-4
-    configs[i]['training']['lr_step'] = 10
-    configs[i]['training']['lr_gamma'] = 0.5
-    configs[i]['training']['epochs'] = 100
-    
-    mem_pos = ""
-    for mp in configs[i]['sentence_mlm']['transformer']['memory_position'].split(', '):
-        try:
-            mem_pos += mp.split(" ")[0][0] + mp.split(" ")[1][0]
-        except:
-            pass
-
-    configs[i]['name'] = 'b' + str(configs[i]['batch_size']) + 'sL' + str(configs[i]['max_sent_len']) + \
-        '_' + configs[i]['training']['optimizer'] + 'lr' + str(configs[i]['training']['lr']) + \
-        's' + str(configs[i]['training']['lr_step']) + 'g' + str(configs[i]['training']['lr_gamma']) + \
-        '_gTr' + str(configs[i]['sentence_encoder']['transformer']['num_layers']) + \
-        '.mha' + str(configs[i]['sentence_encoder']['transformer']['num_heads']) + \
-        '.ffn' + str(configs[i]['sentence_encoder']['transformer']['ffn_dim']) + \
-        '.gate' + str(configs[i]['sentence_encoder']['transformer']['gate'])[0] + \
-        '.pool' + configs[i]['sentence_encoder']['pooling']['pooling_function'] + \
-        '.s2v' + str(configs[i]['s2v_dim']) + \
-        '_mTr' + str(configs[i]['sentence_mlm']['transformer']['num_layers']) + \
-        'idr' + str(configs[i]['sentence_mlm']['input_drop']) + \
-        '.mha' + str(configs[i]['sentence_mlm']['transformer']['num_heads']) + \
-        '.ffn' + str(configs[i]['sentence_mlm']['transformer']['ffn_dim']) + \
-        '.hdr' + str(configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop']) + \
-        '.postNorm.' + mem_pos + \
-        '.mGateTanh' + \
-        '_mem' + str(configs[i]['use_memory']) + '=' + configs[i]['training']['memory_sentence_pos'] + \
-        '_trs2v' + str(configs[i]['training']['memory_true_s2v_initial_rate']) + \
-        '.g' + str(configs[i]['training']['memory_true_s2v_gamma']) + \
-        '_mask0' +str(configs[i]['training']['set_mask_token_to_0']) + \
-        '_v9_normLoss_trDoc10_' + str(i)
-    i += 1
-
-# -----------------------------------------------------------------------------
-i = 100
+i = 600
 for _ in range(0, 100):
     configs[i]['sentence_encoder']['input_drop'] = 0.0
     configs[i]['sentence_encoder']['transformer']['gate'] = False
     configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
-    if i in (102, 103, 104, 105, 106, 107):
-        configs[i]['sentence_encoder']['transformer']['num_layers'] = 3
-    configs[i]['sentence_encoder']['transformer']['dropout'] = 0.0
+    configs[i]['sentence_encoder']['transformer']['dropout'] = 0.05
     configs[i]['sentence_encoder']['transformer']['ffn_dim'] = 256
     configs[i]['sentence_encoder']['transformer']['num_heads'] = 16
 
     configs[i]['sentence_encoder']['pooling']['mha']['inner_dim'] = 2*1024
     configs[i]['sentence_encoder']['pooling']['mha']['num_heads'] = 128
     configs[i]['sentence_encoder']['pooling']['mha']['attention_dropout'] = 0.0
+    configs[i]['sentence_encoder']['pooling']['pooling_method'] = 'mha'
 
     configs[i]['sentence_mlm']['input_drop'] = 0.0
     configs[i]['sentence_mlm']['transformer']['num_layers'] = 4
-    if i in (116, 117):
-        configs[i]['sentence_mlm']['transformer']['num_layers'] = 8
-    configs[i]['sentence_mlm']['transformer']['dropout'] = 0.0
+    configs[i]['sentence_mlm']['transformer']['dropout'] = 0.05
     configs[i]['sentence_mlm']['transformer']['ffn_dim'] = 256
-    configs[i]['sentence_mlm']['transformer']['num_heads'] = 16
-    configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn input, ffn hidden, mha hidden'
-    configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
-    configs[i]['sentence_mlm']['transformer']['mha'] = True
-    if i in (118, 119):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = False
-    configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop'] = 0.0
+    configs[i]['sentence_mlm']['transformer']['num_heads'] = False
+    configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn input'
+    configs[i]['sentence_mlm']['transformer']['memory_gate'] = False
+    configs[i]['sentence_mlm']['transformer']['memory_res_ffn'] = False
+    configs[i]['sentence_mlm']['transformer']['mha'] = False
+    configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop'] = 0.05
+    configs[i]['sentence_mlm']['transformer']['gate'] = False
 
     configs[i]['s2v_dim'] = 2*1024
     configs[i]['max_sent_len'] = 32
+    configs[i]['num_mem_sents'] = 1
     configs[i]['batch_size'] = 24
-    if i%2 == 1:
-        configs[i]['use_memory'] = False
-    else:
-        configs[i]['use_memory'] = True
     configs[i]['training']['set_mask_token_to_0'] = False
-    configs[i]['training']['use_mask_token'] = True
-    configs[i]['training']['memory_true_s2v_initial_rate'] = 0.0
+    configs[i]['training']['use_mask_token'] = False
     configs[i]['training']['memory_true_s2v_initial_rate'] = 0.0
     configs[i]['training']['memory_true_s2v_gamma'] = 0.0
-    configs[i]['training']['memory_sentence_pos'] = "+1"
+    configs[i]['training']['memory_sentence_pos'] = "-1"
 
     configs[i]['training']['optimizer'] = 'Adam'
-    configs[i]['training']['lr'] = 4e-4
+    configs[i]['training']['lr'] = 1e-4
     configs[i]['training']['lr_step'] = 10
     configs[i]['training']['lr_gamma'] = 0.75
-    if i in (104, 105, 110, 111):
-        configs[i]['training']['lr_gamma'] = 0.75
-    if i in (106, 107):
-        configs[i]['training']['lr_gamma'] = 0.4
-    if i in (112, 113):
-        configs[i]['training']['lr_gamma'] = 0.9
-    # if i in (114, 115, 116, 117):
-    #     configs[i]['training']['lr_gamma'] = 0.75
     configs[i]['training']['epochs'] = 100
-    if i in (114, 115, 116, 117, 118, 119):
-        configs[i]['training']['epochs'] = 150
+    configs[i]['training']['input_drop'] = 0.0
 
-    if i in (120, 121):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = False
-        configs[i]['training']['memory_sentence_pos'] = "closest100"
-        configs[i]['training']['epochs'] = 150
+    configs[i]['training']['sent_diff_loss'] = False
 
-    if i in (124, 125):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = False
-        configs[i]['training']['memory_sentence_pos'] = "closest200"
-        if i%2 == 1:
-            configs[i]['training']['memory_sentence_pos'] = "rnd"
-        configs[i]['training']['epochs'] = 300
+    configs[i]['sentence_mlm']['transformer']['mha'] = False
+    configs[i]['training']['num_predictions'] = 1
+    configs[i]['training']['warmup'] = 0
+    configs[i]['training']['pretrain'] = False
 
-    if i in (126, 127):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = False
-        configs[i]['sentence_mlm']['transformer']['mha'] = False
-        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
-        configs[i]['training']['epochs'] = 300
+    if i == 600:
+        configs[i]['training']['input_drop'] = 0.0
+        configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
+        configs[i]['sentence_encoder']['transformer']['gate'] = False
+        configs[i]['sentence_encoder']['transformer']['dropout'] = 0.00
+        configs[i]['sentence_encoder']['pooling']['pooling_function'] = 'mean'
+        configs[i]['num_mem_sents'] = 4 # <---
+        configs[i]['s2v_dim'] = 1024
+        configs[i]['training']['lr'] = 8e-5
+        configs[i]['training']['lr_step'] = 10
+        configs[i]['training']['lr_gamma'] = 0.97
+        configs[i]['training']['epochs'] = 200
 
-    if i in (128, 129):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = False
-        configs[i]['sentence_mlm']['transformer']['mha'] = False
-        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
-        configs[i]['sentence_mlm']['transformer']['num_layers'] = 8
-        configs[i]['training']['epochs'] = 300
+    if i == 601:
+        configs[i]['training']['input_drop'] = 0.0
+        configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
+        configs[i]['sentence_encoder']['transformer']['gate'] = False
+        configs[i]['sentence_encoder']['transformer']['dropout'] = 0.00
+        configs[i]['sentence_encoder']['pooling']['pooling_function'] = 'mean'
+        configs[i]['num_mem_sents'] = 2 # <---
+        configs[i]['s2v_dim'] = 1024
+        configs[i]['training']['lr'] = 8e-5
+        configs[i]['training']['lr_step'] = 10
+        configs[i]['training']['lr_gamma'] = 0.97
+        configs[i]['training']['epochs'] = 200
 
-    if i in (130, 131):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
-        configs[i]['sentence_mlm']['transformer']['mha'] = False
-        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
-        configs[i]['training']['epochs'] = 300
+    if i == 602:
+        configs[i]['training']['input_drop'] = 0.0
+        configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
+        configs[i]['sentence_encoder']['transformer']['gate'] = False
+        configs[i]['sentence_encoder']['transformer']['dropout'] = 0.00
+        configs[i]['sentence_encoder']['pooling']['pooling_function'] = 'mean'
+        configs[i]['num_mem_sents'] = 1 # <---
+        configs[i]['s2v_dim'] = 1024
+        configs[i]['training']['lr'] = 8e-5
+        configs[i]['training']['lr_step'] = 10
+        configs[i]['training']['lr_gamma'] = 0.97
+        configs[i]['training']['epochs'] = 200
 
-    if i in (132, 133):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
-        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn input'
-        configs[i]['sentence_mlm']['transformer']['mha'] = False
-        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
-        configs[i]['training']['epochs'] = 300
+    if i == 603:
+        configs[i]['training']['input_drop'] = 0.0
+        configs[i]['sentence_encoder']['transformer']['num_layers'] = 1 # <--
+        configs[i]['sentence_encoder']['transformer']['gate'] = False
+        configs[i]['sentence_encoder']['transformer']['dropout'] = 0.00
+        configs[i]['sentence_encoder']['pooling']['pooling_function'] = 'mean'
+        configs[i]['num_mem_sents'] = 1
+        configs[i]['s2v_dim'] = 1024
+        configs[i]['training']['lr'] = 8e-5
+        configs[i]['training']['lr_step'] = 10
+        configs[i]['training']['lr_gamma'] = 0.97
+        configs[i]['training']['epochs'] = 200
 
-    if i in (134, 135):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
-        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
-        configs[i]['sentence_mlm']['transformer']['mha'] = False
-        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
-        configs[i]['training']['epochs'] = 300
+    if i == 604:
+        configs[i]['training']['input_drop'] = 0.0
+        configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
+        configs[i]['sentence_encoder']['transformer']['gate'] = False
+        configs[i]['sentence_encoder']['transformer']['dropout'] = 0.00
+        configs[i]['sentence_encoder']['pooling']['pooling_function'] = 'mean'
+        configs[i]['num_mem_sents'] = 1
+        configs[i]['s2v_dim'] = 2048 # <----
+        configs[i]['training']['lr'] = 8e-5
+        configs[i]['training']['lr_step'] = 10
+        configs[i]['training']['lr_gamma'] = 0.97
+        configs[i]['training']['epochs'] = 200
 
-    if i in (136, 137):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
-        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
-        configs[i]['sentence_mlm']['transformer']['mha'] = False
-        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
-        configs[i]['training']['epochs'] = 300
+    if i == 605:
+        configs[i]['training']['input_drop'] = 0.0
+        configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
+        configs[i]['sentence_encoder']['transformer']['gate'] = False
+        configs[i]['sentence_encoder']['transformer']['dropout'] = 0.00
+        configs[i]['sentence_encoder']['pooling']['pooling_function'] = 'mean'
+        configs[i]['num_mem_sents'] = 1
+        configs[i]['s2v_dim'] = 1024
+        configs[i]['training']['lr'] = 8e-5
+        configs[i]['training']['lr_step'] = 10
+        configs[i]['training']['lr_gamma'] = 0.97
+        configs[i]['training']['epochs'] = 200
+        configs[i]['training']['num_predictions'] = 2 # <----
 
-    if i in (138, 139):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
-        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
-        configs[i]['sentence_mlm']['transformer']['mha'] = False
-        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
-        configs[i]['training']['memory_sentence_pos'] = "rnd"
-        configs[i]['training']['epochs'] = 300
-        if i == 139:
-            configs[i]['training']['epochs'] = -100 # skip
-            configs[i]['sentence_mlm']['transformer']['memory_gate'] = 'skip'
+    if i == 610:
+        configs[i]['training']['input_drop'] = 0.0
+        configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
+        configs[i]['sentence_encoder']['transformer']['gate'] = False
+        configs[i]['sentence_encoder']['transformer']['dropout'] = 0.00
+        configs[i]['sentence_encoder']['pooling']['pooling_function'] = 'mean'
+        configs[i]['num_mem_sents'] = 1
+        configs[i]['s2v_dim'] = 1024
+        configs[i]['training']['lr'] = 8e-5
+        configs[i]['training']['lr_step'] = 10
+        configs[i]['training']['lr_gamma'] = 0.97
+        configs[i]['training']['epochs'] = 2000
+        configs[i]['training']['num_predictions'] = 1
+        # configs[i]['sentence_mlm']['transformer']['num_heads'] = 16
+        # configs[i]['sentence_mlm']['transformer']['mha'] = True
 
-    if i in (140, 141):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
-        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
-        configs[i]['sentence_mlm']['transformer']['mha'] = False
-        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
-        configs[i]['training']['memory_sentence_pos'] = "rnd"
-        configs[i]['training']['epochs'] = 300
-        configs[i]['sentence_encoder']['transformer']['num_layers'] = 3
-        if i == 141:
-            configs[i]['training']['epochs'] = -100 # skip
-            configs[i]['sentence_mlm']['transformer']['memory_gate'] = 'skip'
+    if i == 611:
+        configs[i]['training']['input_drop'] = 0.0
+        configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
+        configs[i]['sentence_encoder']['transformer']['gate'] = False
+        configs[i]['sentence_encoder']['transformer']['dropout'] = 0.00
+        configs[i]['sentence_encoder']['pooling']['pooling_function'] = 'mean'
+        configs[i]['num_mem_sents'] = 1
+        configs[i]['s2v_dim'] = 1024
+        configs[i]['training']['lr'] = 8e-5
+        configs[i]['training']['lr_step'] = 10
+        configs[i]['training']['lr_gamma'] = 0.97
+        configs[i]['training']['epochs'] = 2000
+        configs[i]['training']['num_predictions'] = 1
+        configs[i]['sentence_mlm']['transformer']['num_heads'] = 16
+        configs[i]['sentence_mlm']['transformer']['mha'] = True
 
-    if i in (142, 143):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
-        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
-        configs[i]['sentence_mlm']['transformer']['mha'] = False
-        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
-        configs[i]['training']['memory_sentence_pos'] = "rnd"
-        configs[i]['training']['epochs'] = 300
-        configs[i]['sentence_mlm']['transformer']['num_layers'] = 8
-
-    if i in (144, 145):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
-        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
-        configs[i]['sentence_mlm']['transformer']['mha'] = False
-        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
-        configs[i]['training']['memory_sentence_pos'] = "rnd"
-        configs[i]['training']['epochs'] = 300
-        configs[i]['sentence_mlm']['input_drop'] = 0.1
-
-    if i in (146, 147):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
-        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
-        configs[i]['sentence_mlm']['transformer']['mha'] = False
-        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
-        configs[i]['training']['memory_sentence_pos'] = "rnd"
-        configs[i]['training']['epochs'] = 300
-        configs[i]['sentence_mlm']['input_drop'] = 0.3
-
-    if i in (148, 149):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
-        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
-        configs[i]['sentence_mlm']['transformer']['mha'] = False
-        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
-        configs[i]['training']['memory_sentence_pos'] = "rnd"
-        configs[i]['training']['epochs'] = 300
-        configs[i]['training']['use_mask_token'] = False
-        configs[i]['sentence_mlm']['input_drop'] = 0.3
-
-    if i in (150, 151):
-        configs[i]['sentence_mlm']['transformer']['memory_gate'] = True
-        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn hidden'
-        configs[i]['sentence_mlm']['transformer']['mha'] = False
-        configs[i]['sentence_mlm']['transformer']['num_heads'] = False
-        configs[i]['training']['memory_sentence_pos'] = "rnd"
-        configs[i]['training']['epochs'] = 300
-        configs[i]['training']['use_mask_token'] = False
-        configs[i]['sentence_mlm']['input_drop'] = 0.5
+    if i == 612:
+        configs[i]['training']['input_drop'] = 0.0
+        configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
+        configs[i]['sentence_encoder']['transformer']['gate'] = False
+        configs[i]['sentence_encoder']['transformer']['dropout'] = 0.00
+        configs[i]['sentence_encoder']['pooling']['pooling_function'] = 'mean'
+        configs[i]['num_mem_sents'] = 1
+        configs[i]['s2v_dim'] = 1024
+        configs[i]['training']['lr'] = 8e-5
+        configs[i]['training']['lr_step'] = 10
+        configs[i]['training']['lr_gamma'] = 0.97
+        configs[i]['training']['epochs'] = 2000
+        configs[i]['training']['num_predictions'] = 1
+        configs[i]['sentence_mlm']['transformer']['num_heads'] = 16
+        configs[i]['sentence_mlm']['transformer']['mha'] = True
 
     mem_pos = ""
     for mp in configs[i]['sentence_mlm']['transformer']['memory_position'].split(', '):
@@ -383,23 +253,48 @@ for _ in range(0, 100):
     configs[i]['name'] = 'b' + str(configs[i]['batch_size']) + 'sL' + str(configs[i]['max_sent_len']) + \
         '_' + configs[i]['training']['optimizer'] + 'lr' + str(configs[i]['training']['lr']) + \
         's' + str(configs[i]['training']['lr_step']) + 'g' + str(configs[i]['training']['lr_gamma']) + \
-        '_gTr' + str(configs[i]['sentence_encoder']['transformer']['num_layers']) + \
-        '.mha' + str(configs[i]['sentence_encoder']['transformer']['num_heads']) + \
-        '.ffn' + str(configs[i]['sentence_encoder']['transformer']['ffn_dim']) + \
-        '.gate' + str(configs[i]['sentence_encoder']['transformer']['gate'])[0] + \
-        '.pool' + configs[i]['sentence_encoder']['pooling']['pooling_function'] + \
-        '.s2v' + str(configs[i]['s2v_dim']) + \
-        '_mTr' + str(configs[i]['sentence_mlm']['transformer']['num_layers']) + \
-        'idr' + str(configs[i]['sentence_mlm']['input_drop']) + \
-        '.mha' + str(configs[i]['sentence_mlm']['transformer']['num_heads']) + \
-        '.ffn' + str(configs[i]['sentence_mlm']['transformer']['ffn_dim']) + \
-        '.hdr' + str(configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop']) + \
-        '.postNorm.' + mem_pos + \
-        '.mGateTanh' + str(configs[i]['sentence_mlm']['transformer']['memory_gate'])[0] + \
         '_mem' + str(configs[i]['use_memory']) + '=' + configs[i]['training']['memory_sentence_pos'] + \
+        '.cnt' + str(configs[i]['num_mem_sents']) + \
         '_trs2v' + str(configs[i]['training']['memory_true_s2v_initial_rate']) + \
         '.g' + str(configs[i]['training']['memory_true_s2v_gamma']) + \
         '_mask' + str(configs[i]['training']['use_mask_token'])[0] + \
         '0' + str(configs[i]['training']['set_mask_token_to_0']) + \
-        '_v12_normLoss_trDoc40_' + str(i)
+        'dr' + str(configs[i]['training']['input_drop']) + \
+        '.pool' + configs[i]['sentence_encoder']['pooling']['pooling_function'] + \
+        '.s2v' + str(configs[i]['s2v_dim']) + \
+        '' + configs[i]['sentence_encoder']['pooling']['pooling_method'] + \
+        '.sdiff' + str(configs[i]['training']['sent_diff_loss'])[0] + \
+        '.nPred' + str(configs[i]['training']['num_predictions']) + \
+        '_v84_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_2xDns1024_3xConv_crossEntr2xFc(4x)_nextEmbPredLastL_x2Loss_' + str(i)
     i += 1
+
+        # '_v83_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_2xDns1024_3xConv_crossEntr2xFc(4x)_noisePred_' + str(i)
+        # '_v72_NegInSentLoss_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_2xDns1024_' + str(i)
+
+        # '_v31_nW_nloss_trD40_s2v2xDns1k_3xDns4k_s2vInOutLossNoAtt1e4_nDocs_' + str(i)
+        # '_v19_memGffn+ffn_memCosLos8e-5.8_normloss_trDoc40_' + str(i)
+        # '_v28_sOrd_1wmask_sdifOthDocGrDoc.1_nloss_trD40_' + str(i)
+
+        # '_mTr' + str(configs[i]['sentence_mlm']['transformer']['num_layers']) + \
+        # 'idr' + str(configs[i]['sentence_mlm']['input_drop']) + \
+        # '.mha' + str(configs[i]['sentence_mlm']['transformer']['num_heads']) + \
+        # '.ffn' + str(configs[i]['sentence_mlm']['transformer']['ffn_dim']) + \
+        # '.hdr' + str(configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop']) + \
+
+        # '_gTr' + str(configs[i]['sentence_encoder']['transformer']['num_layers']) + \
+        # '.dr' + str(configs[i]['sentence_encoder']['transformer']['dropout']) + \
+        # '.mha' + str(configs[i]['sentence_encoder']['transformer']['num_heads']) + \
+        # '.ffn' + str(configs[i]['sentence_encoder']['transformer']['ffn_dim']) + \
+        # '.gate' + str(configs[i]['sentence_encoder']['transformer']['gate'])[0] + \
+        # '.pool' + configs[i]['sentence_encoder']['pooling']['pooling_function'] + \
+        # '' + configs[i]['sentence_encoder']['pooling']['pooling_method'] + \
+        # '.s2v' + str(configs[i]['s2v_dim']) + \
+        # '_mTr' + str(configs[i]['sentence_mlm']['transformer']['num_layers']) + \
+        # 'idr' + str(configs[i]['sentence_mlm']['input_drop']) + \
+        # '.mha' + str(configs[i]['sentence_mlm']['transformer']['num_heads']) + \
+        # '.ffn' + str(configs[i]['sentence_mlm']['transformer']['ffn_dim']) + \
+        # '.hdr' + str(configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop']) + \
+        # '.poNorm.' + mem_pos + \
+        # '.mGateTanh' + str(configs[i]['sentence_mlm']['transformer']['memory_gate'])[0] + \
+        # '.mRes' + str(configs[i]['sentence_mlm']['transformer']['memory_res_ffn'])[0] + \
+        # '.gate' + str(configs[i]['sentence_mlm']['transformer']['gate'])[0] + \

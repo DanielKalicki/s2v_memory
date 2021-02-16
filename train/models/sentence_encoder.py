@@ -349,13 +349,17 @@ class SentenceEncoder(nn.Module):
         #                                                   hidden_sentence_dropout=mtr_hsent_drop)
         # self.mlm_mtr = nn.TransformerEncoder(mlm_encoder_layer, num_layers=mtr_num_layers)
 
-        self.fc1_dense = DenseLayer(input_dim=self.word_edim*2+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
+        self.fc1_dense = DenseLayer(input_dim=self.word_edim*3+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
         self.gate1_ = nn.Linear(self.s2v_dim+self.s2v_dim, self.s2v_dim)
         self.gate1 = nn.Linear(self.s2v_dim, self.s2v_dim)
 
         self.fc2_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
         self.gate2_ = nn.Linear(self.s2v_dim+self.s2v_dim, self.s2v_dim)
         self.gate2 = nn.Linear(self.s2v_dim, self.s2v_dim)
+
+        # self.dense_s2v = DenseLayer(input_dim=self.s2v_dim, hidden_dim=1024, output_dim=self.s2v_dim, drop=0.0, cat_dim=2)
+
+        # self.reduce_fc = nn.Linear(self.word_edim, 128)
 
         # self.fc3_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
         # self.gate3_ = nn.Linear(self.s2v_dim+self.s2v_dim, self.s2v_dim)
@@ -386,6 +390,9 @@ class SentenceEncoder(nn.Module):
         # self.fc4_norm = nn.LayerNorm(self.word_edim)
 
         # self.lstm = torch.nn.LSTM(self.word_edim*2, self.s2v_dim*2, 1)
+
+        # self.fc1_pred = nn.Linear(self.word_edim*4, 512)
+        # self.fc2_pred = nn.Linear(512, 2)
 
     def _emb_sent(self, sent, sent_mask=None):
         sent = self.mem_in_dr(sent)
@@ -436,15 +443,19 @@ class SentenceEncoder(nn.Module):
 
         mem_s2v = torch.cat([mem_s2v]*(sent.shape[1]//self.config['num_mem_sents']), dim=1)
 
-        sent_pad_1 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
-        # sent_pad_2 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
-
         mem_s2v_ = mem_s2v * torch.tanh(torch.abs(self.gate1(F.gelu(self.gate1_(torch.cat((sent, mem_s2v), dim=2))))))
-        sent = torch.cat((sent, sent_pad_1[:, :-1]), dim=2)
+
+        sent_pad_1 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
+        sent_pad_2 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
+        sent = torch.cat((sent, sent_pad_1[:, :-1], sent_pad_2[:, :-2]), dim=2)
+        # sent = torch.cat((sent, sent_pad_1[:, :-1]), dim=2)
         sent = torch.cat((sent, mem_s2v_), dim=2)
         sent = self.fc1_dense(sent)
 
         mem_s2v_ = mem_s2v * torch.tanh(torch.abs(self.gate2(F.gelu(self.gate2_(torch.cat((sent, mem_s2v), dim=2))))))
+        # sent_pad_1 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
+        # sent_pad_2 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
+        # sent = torch.cat((sent, sent_pad_1[:, :-1], sent_pad_2[:, :-2]), dim=2)
         sent = torch.cat((sent, mem_s2v_), dim=2)
         sent = self.fc2_dense(sent)
 
@@ -461,7 +472,14 @@ class SentenceEncoder(nn.Module):
         # sent = self.fc2_nsent_dense(torch.cat([sent, mem], dim=1))
         return sent
 
-    def forward(self, sent, mem_sent, nsent, sent_mask=None, mem_sent_mask=None, nsent_mask=None):
+    def _reduce(self, sent):
+        # sent_shape = sent.shape
+        # sent = sent.reshape((sent_shape[0], sent_shape[1], 128, 8))
+        # sent, _ = torch.max(sent, dim=-1)
+        # # sent = sent.reshape((sent_shape[0], sent_shape[1], sent_shape[2]))
+        return sent
+
+    def forward(self, sent, mem_sent, lsent, sent_mask=None, mem_sent_mask=None):
         # sent_s2v = self._mean_s2v(sent, sent_mask=sent_mask)
         # nsent_s2v = self._mean_s2v(nsent, sent_mask=nsent_mask)
 
@@ -477,12 +495,20 @@ class SentenceEncoder(nn.Module):
         sents = []
         for _ in range(self.config['training']['num_predictions']):
             sent = self._sent_nextw(sent, mem_s2v, sent_mask=sent_mask)
-            sents.append(sent)
+            # sent_r = self.reduce_fc(sent)
+            # sents.append(sent_r)
+            sents.append(self._reduce(sent))
 
+        lsent_r = self._reduce(lsent)
         # nsent_s2v_pred = self._nsent_pred(sent_s2v, mem_s2v[:, 0])
+
+        # pred = self.fc1_pred(torch.cat((sent, lsent, torch.abs(sent-lsent), sent*lsent), dim=2))
+        # pred = self.fc2_pred(F.relu(pred))
 
         return {
             'mem_s2v': mem_s2v,
-            'sents': sents
+            'sents': sents,
+            'lsent': lsent_r
+            # 'pred_class': pred
             # 'nsent_s2v': [nsent_s2v_pred, nsent_s2v, sent_s2v]
         }
