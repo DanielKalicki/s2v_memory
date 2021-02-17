@@ -243,6 +243,22 @@ for _ in range(0, 100):
         configs[i]['sentence_mlm']['transformer']['num_heads'] = 16
         configs[i]['sentence_mlm']['transformer']['mha'] = True
 
+    if i == 613:
+        configs[i]['training']['input_drop'] = 0.0
+        configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
+        configs[i]['sentence_encoder']['transformer']['gate'] = False
+        configs[i]['sentence_encoder']['transformer']['dropout'] = 0.00
+        configs[i]['sentence_encoder']['pooling']['pooling_function'] = 'mean'
+        configs[i]['num_mem_sents'] = 1
+        configs[i]['s2v_dim'] = 1024
+        configs[i]['training']['lr'] = 8e-5
+        configs[i]['training']['lr_step'] = 10
+        configs[i]['training']['lr_gamma'] = 0.97
+        configs[i]['training']['epochs'] = 2000
+        configs[i]['training']['num_predictions'] = 1
+        # configs[i]['sentence_mlm']['transformer']['num_heads'] = 16
+        # configs[i]['sentence_mlm']['transformer']['mha'] = True
+
     mem_pos = ""
     for mp in configs[i]['sentence_mlm']['transformer']['memory_position'].split(', '):
         try:
@@ -265,7 +281,7 @@ for _ in range(0, 100):
         '' + configs[i]['sentence_encoder']['pooling']['pooling_method'] + \
         '.sdiff' + str(configs[i]['training']['sent_diff_loss'])[0] + \
         '.nPred' + str(configs[i]['training']['num_predictions']) + \
-        '_v84_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_2xDns1024_3xConv_crossEntr2xFc(4x)_nextEmbPredLastL_x2Loss_' + str(i)
+        '_v84_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_1xDns4k3conv.1xDns1k_crossEntr2xFc(4x)_next3W_' + str(i)
     i += 1
 
         # '_v83_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_2xDns1024_3xConv_crossEntr2xFc(4x)_noisePred_' + str(i)

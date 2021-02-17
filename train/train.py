@@ -219,9 +219,9 @@ def test(models, device, test_loader, epoch):
             writer[idx].flush()
     return test_sent_loss[0][0]
 
-def sentence_score_prediction(model, device, dataset):
+def sentence_score_prediction(models, device, dataset):
     model.eval()
-    title_idx = 4
+    title_idx = 5
     with torch.no_grad():
         memory_sentences_score = {}
         test_sentences, mem_sentences = dataset.get_sentences_from_doc(title_idx)
@@ -233,32 +233,26 @@ def sentence_score_prediction(model, device, dataset):
                     label_sent, label_sent_mask = test_sent['label'].to(device), test_sent['label_mask'].to(device)
                     mem_sent_, mem_sent_mask = mem_sent['emb'].to(device), mem_sent['mask'].to(device)
 
-                    model_output = model(sent, mem_sent_, None, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask)
+                    model_output = models[0](sent, mem_sent_, None, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask)
                     sent_pred = model_output['sents'][0]
                     pred_loss_pos = torch.sum(torch.mean(torch.pow(sent_pred - label_sent, 2), dim=2) * \
                                         (1-label_sent_mask.type(torch.cuda.FloatTensor))) / \
                                     torch.sum(1-label_sent_mask.type(torch.cuda.FloatTensor))
-                    pred_loss_neg = torch.sum(torch.mean(torch.pow(sent_pred[:, :-1] - label_sent[:, 1:], 2), dim=2) * \
-                                        (1-label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))) / \
-                                    torch.sum(1-label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))
-                    pred_loss = pred_loss_pos - torch.nn.functional.threshold(-pred_loss_neg, -0.2, -0.2)
+                    pred_loss = pred_loss_pos
 
                     # no memory
                     sent, sent_mask = test_sent['emb'].to(device), test_sent['mask'].to(device)
                     label_sent, label_sent_mask = test_sent['label'].to(device), test_sent['label_mask'].to(device)
-                    mem_sent_, mem_sent_mask = mem_sent['emb'], mem_sent['mask'].to(device)
+                    mem_sent_, mem_sent_mask = torch.clone(mem_sent['emb']), mem_sent['mask'].to(device)
                     mem_sent_[:, :, :] = 0.0
                     mem_sent_ = mem_sent_.to(device)
 
-                    model_output = model(sent, mem_sent_, None, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask)
+                    model_output = models[1](sent, mem_sent_, None, sent_mask=sent_mask, mem_sent_mask=mem_sent_mask)
                     sent_pred = model_output['sents'][0]
                     pred_loss_pos = torch.sum(torch.mean(torch.pow(sent_pred - label_sent, 2), dim=2) * \
                                         (1-label_sent_mask.type(torch.cuda.FloatTensor))) / \
                                     torch.sum(1-label_sent_mask.type(torch.cuda.FloatTensor))
-                    pred_loss_neg = torch.sum(torch.mean(torch.pow(sent_pred[:, :-1] - label_sent[:, 1:], 2), dim=2) * \
-                                        (1-label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))) / \
-                                    torch.sum(1-label_sent_mask[:, 1:].type(torch.cuda.FloatTensor))
-                    pred_loss_nmem = pred_loss_pos - torch.nn.functional.threshold(-pred_loss_neg, -0.2, -0.2)
+                    pred_loss_nmem = pred_loss_pos
 
                     if mem_sent['idx'] not in memory_sentences_score:
                         memory_sentences_score[mem_sent['idx']] = {'score': float(pred_loss_nmem)-float(pred_loss), 'text': mem_sent['text']}
@@ -283,9 +277,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # model
 model = SentenceEncoder(config)
-# restore_name = 'b24sL32_Adamlr8e-05s10g0.97_memTrue=-1.cnt1_trs2v0.0.g0.0_maskF0Falsedr0.0.poolmean.s2v1024mha.sdiffF.nPred1_v72_NegInSentLoss_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_2xDns1024_610'
+# restore_name = 'b24sL32_Adamlr8e-05s10g0.97_memTrue=-1.cnt1_trs2v0.0.g0.0_maskF0Falsedr0.0.poolmean.s2v1024mha.sdiffF.nPred1_v84_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_2xDns1024_3xConv_crossEntr2xFc(4x)_nextEmbPredLastL_x2Loss_612'
 # checkpoint = torch.load('./train/save/'+restore_name)
-# model.load_state_dict(checkpoint['model_state_dict'])
+# # model.load_state_dict(checkpoint['model_state_dict'])
 print(model)
 model.to(device)
 start_epoch = 1
@@ -293,7 +287,10 @@ start_epoch = 1
 # del checkpoint
 
 model_nmem = SentenceEncoder(config)
+# checkpoint = torch.load('./train/save/'+restore_name+'_mem0')
+# model_nmem.load_state_dict(checkpoint['model_state_dict'])
 model_nmem.to(device)
+# del checkpoint
 
 dataset_train = WikiS2vCorrectionBatch(config)
 data_loader_train = torch.utils.data.DataLoader(
@@ -304,7 +301,7 @@ data_loader_test = torch.utils.data.DataLoader(
     dataset_test, batch_size=config['batch_size'],
     shuffle=False, num_workers=0)
 
-# sentence_score_prediction(model, device, dataset_test)
+# sentence_score_prediction([model, model_nmem], device, dataset_test)
 
 optimizer = optim.Adam(model.parameters(), lr=config['training']['lr'])
 optimizer_nmem = optim.Adam(model_nmem.parameters(), lr=config['training']['lr'])

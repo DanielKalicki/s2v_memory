@@ -349,11 +349,11 @@ class SentenceEncoder(nn.Module):
         #                                                   hidden_sentence_dropout=mtr_hsent_drop)
         # self.mlm_mtr = nn.TransformerEncoder(mlm_encoder_layer, num_layers=mtr_num_layers)
 
-        self.fc1_dense = DenseLayer(input_dim=self.word_edim*3+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
+        self.fc1_dense = DenseLayer(input_dim=self.word_edim*3+self.s2v_dim, hidden_dim=4096, output_dim=self.word_edim, drop=0.0, cat_dim=2)
         self.gate1_ = nn.Linear(self.s2v_dim+self.s2v_dim, self.s2v_dim)
         self.gate1 = nn.Linear(self.s2v_dim, self.s2v_dim)
 
-        self.fc2_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
+        self.fc2_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim*3, drop=0.0, cat_dim=2)
         self.gate2_ = nn.Linear(self.s2v_dim+self.s2v_dim, self.s2v_dim)
         self.gate2 = nn.Linear(self.s2v_dim, self.s2v_dim)
 
