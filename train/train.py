@@ -221,7 +221,7 @@ def test(models, device, test_loader, epoch):
 
 def sentence_score_prediction(models, device, dataset):
     model.eval()
-    title_idx = 5
+    title_idx = 6
     with torch.no_grad():
         memory_sentences_score = {}
         test_sentences, mem_sentences = dataset.get_sentences_from_doc(title_idx)
@@ -277,20 +277,20 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # model
 model = SentenceEncoder(config)
-# restore_name = 'b24sL32_Adamlr8e-05s10g0.97_memTrue=-1.cnt1_trs2v0.0.g0.0_maskF0Falsedr0.0.poolmean.s2v1024mha.sdiffF.nPred1_v84_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_2xDns1024_3xConv_crossEntr2xFc(4x)_nextEmbPredLastL_x2Loss_612'
-# checkpoint = torch.load('./train/save/'+restore_name)
-# # model.load_state_dict(checkpoint['model_state_dict'])
+restore_name = '_b24sL48_Adamlr8e-05s10g0.97_memTrue=-1.cnt1.g0.0dr0.0.poolmean.s2v1024mha.nPred1_v87_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD40_memGateFfn_2xDns1kConv3_n3Wmean_615'
+checkpoint = torch.load('./train/save/'+restore_name)
+model.load_state_dict(checkpoint['model_state_dict'])
 print(model)
 model.to(device)
 start_epoch = 1
-# start_epoch += checkpoint['epoch']
-# del checkpoint
+start_epoch += checkpoint['epoch']
+del checkpoint
 
 model_nmem = SentenceEncoder(config)
-# checkpoint = torch.load('./train/save/'+restore_name+'_mem0')
-# model_nmem.load_state_dict(checkpoint['model_state_dict'])
+checkpoint = torch.load('./train/save/'+restore_name+'_mem0')
+model_nmem.load_state_dict(checkpoint['model_state_dict'])
 model_nmem.to(device)
-# del checkpoint
+del checkpoint
 
 dataset_train = WikiS2vCorrectionBatch(config)
 data_loader_train = torch.utils.data.DataLoader(
@@ -301,7 +301,7 @@ data_loader_test = torch.utils.data.DataLoader(
     dataset_test, batch_size=config['batch_size'],
     shuffle=False, num_workers=0)
 
-# sentence_score_prediction([model, model_nmem], device, dataset_test)
+sentence_score_prediction([model, model_nmem], device, dataset_test)
 
 optimizer = optim.Adam(model.parameters(), lr=config['training']['lr'])
 optimizer_nmem = optim.Adam(model_nmem.parameters(), lr=config['training']['lr'])

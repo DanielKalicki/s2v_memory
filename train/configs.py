@@ -71,7 +71,7 @@ for _ in range(0, 100):
     configs[i]['sentence_encoder']['input_drop'] = 0.0
     configs[i]['sentence_encoder']['transformer']['gate'] = False
     configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
-    configs[i]['sentence_encoder']['transformer']['dropout'] = 0.05
+    configs[i]['sentence_encoder']['transformer']['dropout'] = 0.00
     configs[i]['sentence_encoder']['transformer']['ffn_dim'] = 256
     configs[i]['sentence_encoder']['transformer']['num_heads'] = 16
 
@@ -82,14 +82,14 @@ for _ in range(0, 100):
 
     configs[i]['sentence_mlm']['input_drop'] = 0.0
     configs[i]['sentence_mlm']['transformer']['num_layers'] = 4
-    configs[i]['sentence_mlm']['transformer']['dropout'] = 0.05
+    configs[i]['sentence_mlm']['transformer']['dropout'] = 0.00
     configs[i]['sentence_mlm']['transformer']['ffn_dim'] = 256
     configs[i]['sentence_mlm']['transformer']['num_heads'] = False
     configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn input'
     configs[i]['sentence_mlm']['transformer']['memory_gate'] = False
     configs[i]['sentence_mlm']['transformer']['memory_res_ffn'] = False
     configs[i]['sentence_mlm']['transformer']['mha'] = False
-    configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop'] = 0.05
+    configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop'] = 0.00
     configs[i]['sentence_mlm']['transformer']['gate'] = False
 
     configs[i]['s2v_dim'] = 2*1024
@@ -259,6 +259,37 @@ for _ in range(0, 100):
         # configs[i]['sentence_mlm']['transformer']['num_heads'] = 16
         # configs[i]['sentence_mlm']['transformer']['mha'] = True
 
+    if i == 615:
+        configs[i]['training']['input_drop'] = 0.0
+        configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
+        configs[i]['sentence_encoder']['transformer']['gate'] = False
+        configs[i]['sentence_encoder']['transformer']['dropout'] = 0.00
+        configs[i]['sentence_encoder']['pooling']['pooling_function'] = 'mean'
+        configs[i]['num_mem_sents'] = 1
+        configs[i]['s2v_dim'] = 1024
+        configs[i]['training']['lr'] = 8e-5
+        configs[i]['training']['lr_step'] = 10
+        configs[i]['training']['lr_gamma'] = 0.97
+        configs[i]['training']['epochs'] = 2000
+        configs[i]['training']['num_predictions'] = 1
+        configs[i]['max_sent_len'] = 48
+
+    if i == 616:
+        configs[i]['training']['input_drop'] = 0.0
+        configs[i]['sentence_encoder']['transformer']['num_layers'] = 0
+        configs[i]['sentence_encoder']['transformer']['gate'] = False
+        configs[i]['sentence_encoder']['transformer']['dropout'] = 0.00
+        configs[i]['sentence_encoder']['pooling']['pooling_function'] = 'mean'
+        configs[i]['num_mem_sents'] = 1
+        configs[i]['s2v_dim'] = 1024
+        configs[i]['training']['lr'] = 8e-5
+        configs[i]['training']['lr_step'] = 10
+        configs[i]['training']['lr_gamma'] = 0.97
+        configs[i]['training']['epochs'] = 2000
+        configs[i]['training']['num_predictions'] = 1
+        configs[i]['max_sent_len'] = 48
+        configs[i]['sentence_encoder']['input_drop'] = 0.0
+
     mem_pos = ""
     for mp in configs[i]['sentence_mlm']['transformer']['memory_position'].split(', '):
         try:
@@ -271,21 +302,23 @@ for _ in range(0, 100):
         's' + str(configs[i]['training']['lr_step']) + 'g' + str(configs[i]['training']['lr_gamma']) + \
         '_mem' + str(configs[i]['use_memory']) + '=' + configs[i]['training']['memory_sentence_pos'] + \
         '.cnt' + str(configs[i]['num_mem_sents']) + \
-        '_trs2v' + str(configs[i]['training']['memory_true_s2v_initial_rate']) + \
         '.g' + str(configs[i]['training']['memory_true_s2v_gamma']) + \
-        '_mask' + str(configs[i]['training']['use_mask_token'])[0] + \
-        '0' + str(configs[i]['training']['set_mask_token_to_0']) + \
         'dr' + str(configs[i]['training']['input_drop']) + \
         '.pool' + configs[i]['sentence_encoder']['pooling']['pooling_function'] + \
         '.s2v' + str(configs[i]['s2v_dim']) + \
         '' + configs[i]['sentence_encoder']['pooling']['pooling_method'] + \
-        '.sdiff' + str(configs[i]['training']['sent_diff_loss'])[0] + \
         '.nPred' + str(configs[i]['training']['num_predictions']) + \
-        '_v84_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_1xDns4k3conv.1xDns1k_crossEntr2xFc(4x)_next3W_' + str(i)
+        '_v89_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD40_memGateFfn_2xDns1kConv3_n3Wmean_dr.3_' + str(i)
     i += 1
 
         # '_v83_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_2xDns1024_3xConv_crossEntr2xFc(4x)_noisePred_' + str(i)
         # '_v72_NegInSentLoss_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_2xDns1024_' + str(i)
+
+        # '_mTr' + str(configs[i]['sentence_mlm']['transformer']['num_layers']) + \
+        # 'idr' + str(configs[i]['sentence_mlm']['input_drop']) + \
+        # '.mha' + str(configs[i]['sentence_mlm']['transformer']['num_heads']) + \
+        # '.ffn' + str(configs[i]['sentence_mlm']['transformer']['ffn_dim']) + \
+        # '.hdr' + str(configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop']) + \
 
         # '_v31_nW_nloss_trD40_s2v2xDns1k_3xDns4k_s2vInOutLossNoAtt1e4_nDocs_' + str(i)
         # '_v19_memGffn+ffn_memCosLos8e-5.8_normloss_trDoc40_' + str(i)
