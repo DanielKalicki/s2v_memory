@@ -289,6 +289,12 @@ for _ in range(0, 100):
         configs[i]['training']['num_predictions'] = 1
         configs[i]['max_sent_len'] = 48
         configs[i]['sentence_encoder']['input_drop'] = 0.0
+        configs[i]['sentence_mlm']['transformer']['num_heads'] = 16
+        configs[i]['sentence_mlm']['transformer']['mha'] = True
+        configs[i]['sentence_mlm']['transformer']['memory_position'] = 'ffn input'
+        configs[i]['sentence_mlm']['transformer']['ffn_dim'] = 2048
+        configs[i]['sentence_mlm']['transformer']['num_layers'] = 4
+        configs[i]['sentence_mlm']['transformer']['gate'] = True
 
     mem_pos = ""
     for mp in configs[i]['sentence_mlm']['transformer']['memory_position'].split(', '):
@@ -306,11 +312,19 @@ for _ in range(0, 100):
         'dr' + str(configs[i]['training']['input_drop']) + \
         '.pool' + configs[i]['sentence_encoder']['pooling']['pooling_function'] + \
         '.s2v' + str(configs[i]['s2v_dim']) + \
-        '' + configs[i]['sentence_encoder']['pooling']['pooling_method'] + \
+        '_mTr' + str(configs[i]['sentence_mlm']['transformer']['num_layers']) + \
+        'idr' + str(configs[i]['sentence_mlm']['input_drop']) + \
+        '.mha' + str(configs[i]['sentence_mlm']['transformer']['num_heads']) + \
+        '.ffn' + str(configs[i]['sentence_mlm']['transformer']['ffn_dim']) + \
+        '.hdr' + str(configs[i]['sentence_mlm']['transformer']['hidden_sentence_drop']) + \
+        '.g' + str(configs[i]['sentence_mlm']['transformer']['gate'])[0] + \
+        '.' + mem_pos + \
+        '.' + configs[i]['sentence_encoder']['pooling']['pooling_method'] + \
         '.nPred' + str(configs[i]['training']['num_predictions']) + \
-        '_v89_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD40_memGateFfn_2xDns1kConv3_n3Wmean_dr.3_' + str(i)
+        '_v92_inLLoutLL_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_mTrHhaH1k_trD40_maskedSentLLayDr.3othDocFix.1Zero_rndMem_lossFullSent_' + str(i)
     i += 1
 
+        # '_v89_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD40_memGateFfn_2xDns1kConv3_n3WmeanLlayer_in.3Mask0_' + str(i)
         # '_v83_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_2xDns1024_3xConv_crossEntr2xFc(4x)_noisePred_' + str(i)
         # '_v72_NegInSentLoss_sent+-3_s2vGTrx0.mhaPool.nGate.nNorm_trD80_memGateFfn_2xDns1024_' + str(i)
 

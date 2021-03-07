@@ -170,22 +170,22 @@ class MemoryTransformerEncoderLayer(nn.Module):
         self.memory_res_ffn = memory_res_ffn
 
         self.hsent_drop1 = nn.Dropout(hidden_sentence_dropout)
-        self.conv_1 = nn.Conv1d(d_model, dim_feedforward, 3, padding=1)
+        # self.conv_1 = nn.Conv1d(d_model, dim_feedforward, 3, padding=1)
         self.linear1 = nn.Linear(d_model+(d_memory if 'ffn input' in memory_position else 0), dim_feedforward)
         self.activation = _get_activation_fn(activation)
         self.dropout = nn.Dropout(dropout)
         self.hsent_drop2 = nn.Dropout(hidden_sentence_dropout)
-        self.linear2 = nn.Linear(dim_feedforward*2+(d_memory if 'ffn hidden' in memory_position else 0), d_model)
+        self.linear2 = nn.Linear(dim_feedforward+(d_memory if 'ffn hidden' in memory_position else 0), d_model)
 
         self.dropout2 = nn.Dropout(dropout)
         self.norm2 = nn.LayerNorm(d_model)
         
         if self.mha_enabled:
             # self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, out_dim_mult=1.0)
-            self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, out_dim_mult=0.25)
+            self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, out_dim_mult=1.0)
             self.hsent_drop_mha = nn.Dropout(hidden_sentence_dropout)
             # self.linear_mha = nn.Linear(d_model+(d_memory if 'mha hidden' in memory_position else 0), d_model)
-            self.linear_mha = nn.Linear(int(d_model*0.25)+(d_memory if 'mha hidden' in memory_position else 0), d_model)
+            self.linear_mha = nn.Linear(int(d_model*1.0)+(d_memory if 'mha hidden' in memory_position else 0), d_model)
 
             self.dropout1 = nn.Dropout(dropout)
             self.norm1 = nn.LayerNorm(d_model)
@@ -195,7 +195,8 @@ class MemoryTransformerEncoderLayer(nn.Module):
             self.mem_gate = nn.Linear(d_model+d_memory, d_memory)
 
         if self.gate:
-            self.gate = nn.Linear(d_model+d_memory, d_model)
+            self.gate1 = nn.Linear(d_model+d_memory, d_model)
+            self.gate2 = nn.Linear(d_model+d_memory, d_model)
 
     def __setstate__(self, state):
         if 'activation' not in state:
@@ -219,24 +220,22 @@ class MemoryTransformerEncoderLayer(nn.Module):
             if 'mha hidden' in self.memory_position:
                 src2 = torch.cat((self.hsent_drop_mha(src2), mem_), dim=2)
             src2 = self.linear_mha(src2)
+            if self.gate:
+                src2 = src2 * torch.sigmoid(self.gate1(torch.cat((src2, mem_), dim=2)))
             src = src + self.dropout1(src2)
-            src = self.norm1(src)
+            # src = self.norm1(src)
 
         src_ = src
         if 'ffn input' in self.memory_position:
             src_ = torch.cat((self.hsent_drop1(src_), mem_), dim=2)
         src2 = self.activation(self.linear1(src_))
-        src2_ = self.conv_1(src.permute((1,2,0))).permute((2,0,1))
-        src2 = torch.cat((src2, src2_), dim=2)
-
-        src2 = self.activation(src2)
         if 'ffn hidden' in self.memory_position:
             src2 = torch.cat((self.hsent_drop2(src2), mem_), dim=2)
         src2 = self.linear2(src2)
         if self.gate:
-            src2 = src2 * torch.sigmoid(self.gate(torch.cat((src2, mem_), dim=2)))
-        src = self.dropout2(src2)
-        src = self.norm2(src)
+            src2 = src2 * torch.sigmoid(self.gate2(torch.cat((src2, mem_), dim=2)))
+        src = src + self.dropout2(src2)
+        # src = self.norm2(src)
 
         src = torch.cat((src, mem), dim=2)
         return src
@@ -260,8 +259,6 @@ class SentenceEncoder(nn.Module):
         gtr_drop = config['sentence_encoder']['transformer']['dropout']
 
         if config['sentence_encoder']['transformer']['num_layers'] > 0:
-            # self.mem_norm = nn.LayerNorm(self.word_edim)
-
             mem_encoder_layer = GatedTransformerEncoderLayer(d_model=self.word_edim, nhead=gtr_num_head,
                                                         dim_feedforward=gtr_dim_feedforward,
                                                         gate=gtr_gate,
@@ -293,47 +290,25 @@ class SentenceEncoder(nn.Module):
         mtr_mem_res_ffn = config['sentence_mlm']['transformer']['memory_res_ffn']
         mtr_hsent_drop = config['sentence_mlm']['transformer']['hidden_sentence_drop']
 
-        # mlm_encoder_layer = MemoryTransformerEncoderLayer(d_model=self.word_edim, nhead=mtr_num_head,
-        #                                                   d_memory=self.s2v_dim,
-        #                                                   dim_feedforward=mtr_dim_feedforward,
-        #                                                   dropout=mtr_drop, activation="gelu",
-        #                                                   mha_enabled=mtr_mha_en,
-        #                                                   gate=mtr_gate,
-        #                                                   memory_position=mtr_mem_pos,
-        #                                                   memory_gate=mtr_mem_gate,
-        #                                                   memory_res_ffn=mtr_mem_res_ffn,
-        #                                                   hidden_sentence_dropout=mtr_hsent_drop)
-        # self.mlm_mtr = nn.TransformerEncoder(mlm_encoder_layer, num_layers=mtr_num_layers)
+        mlm_encoder_layer = MemoryTransformerEncoderLayer(d_model=self.word_edim, nhead=mtr_num_head,
+                                                          d_memory=self.s2v_dim,
+                                                          dim_feedforward=mtr_dim_feedforward,
+                                                          dropout=mtr_drop, activation="gelu",
+                                                          mha_enabled=mtr_mha_en,
+                                                          gate=mtr_gate,
+                                                          memory_position=mtr_mem_pos,
+                                                          memory_gate=mtr_mem_gate,
+                                                          memory_res_ffn=mtr_mem_res_ffn,
+                                                          hidden_sentence_dropout=mtr_hsent_drop)
+        self.mlm_mtr = nn.TransformerEncoder(mlm_encoder_layer, num_layers=mtr_num_layers)
 
-        self.fc1_dense = DenseLayer(input_dim=self.word_edim*3+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
-        self.gate1_ = nn.Linear(self.word_edim+self.s2v_dim, self.s2v_dim)
-        self.gate1 = nn.Linear(self.s2v_dim, self.s2v_dim)
+        # self.fc1_dense = DenseLayer(input_dim=self.word_edim*3+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
+        # self.gate1_ = nn.Linear(self.word_edim+self.s2v_dim, self.s2v_dim)
+        # self.gate1 = nn.Linear(self.s2v_dim, self.s2v_dim)
 
-        self.fc2_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
-        self.gate2_ = nn.Linear(self.word_edim+self.s2v_dim, self.s2v_dim)
-        self.gate2 = nn.Linear(self.s2v_dim, self.s2v_dim)
-
-        # self.dense_s2v = DenseLayer(input_dim=self.s2v_dim, hidden_dim=1024, output_dim=self.s2v_dim, drop=0.0, cat_dim=2)
-        # self.reduce_fc = nn.Linear(self.word_edim, 128)
-
-        # self.fc3_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
-        # self.gate3_ = nn.Linear(self.s2v_dim+self.s2v_dim, self.s2v_dim)
-        # self.gate3 = nn.Linear(self.s2v_dim, self.s2v_dim)
-        # self.fc_3_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
-        # self.fc_4_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=4096, output_dim=self.word_edim, cat_dim=2)
-
-        # self.s2v_pred_fc = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, cat_dim=2)
-
-        # self.fc1_nsent_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, cat_dim=1)
-        # self.fc2_nsent_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, cat_dim=1)
-
-        # self.fc1_norm = nn.LayerNorm(self.word_edim)
-        # self.fc2_norm = nn.LayerNorm(self.word_edim)
-        # self.fc3_norm = nn.LayerNorm(self.word_edim)
-        # self.fc4_norm = nn.LayerNorm(self.word_edim)
-
-        # self.fc1_pred = nn.Linear(self.word_edim*4, 512)
-        # self.fc2_pred = nn.Linear(512, 2)
+        # self.fc2_dense = DenseLayer(input_dim=self.word_edim+self.s2v_dim, hidden_dim=1024, output_dim=self.word_edim, drop=0.0, cat_dim=2)
+        # self.gate2_ = nn.Linear(self.word_edim+self.s2v_dim, self.s2v_dim)
+        # self.gate2 = nn.Linear(self.s2v_dim, self.s2v_dim)
 
     def _emb_sent(self, sent, sent_mask=None):
         sent = self.mem_in_dr(sent)
@@ -380,32 +355,31 @@ class SentenceEncoder(nn.Module):
 
         mem_s2v = torch.cat([mem_s2v]*(sent.shape[1]//self.config['num_mem_sents']), dim=1)
 
-        mem_s2v_ = mem_s2v * torch.tanh(torch.abs(self.gate1(F.gelu(self.gate1_(torch.cat((sent, mem_s2v), dim=2))))))
-
-        sent_pad_1 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
-        sent_pad_2 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
-        sent = torch.cat((sent, sent_pad_1[:, :-1], sent_pad_2[:, :-2]), dim=2)
-        # sent = torch.cat((sent, sent_pad_1[:, :-1]), dim=2)
-        sent = torch.cat((sent, mem_s2v_), dim=2)
-        sent = self.fc1_dense(sent)
-
-        mem_s2v_ = mem_s2v * torch.tanh(torch.abs(self.gate2(F.gelu(self.gate2_(torch.cat((sent, mem_s2v), dim=2))))))
-        # sent_pad_1 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
-        # sent_pad_2 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
-        # sent = torch.cat((sent, sent_pad_1[:, :-1], sent_pad_2[:, :-2]), dim=2)
-        sent = torch.cat((sent, mem_s2v_), dim=2)
-        sent = self.fc2_dense(sent)
+        # mem_s2v_ = mem_s2v * torch.tanh(torch.abs(self.gate1(F.gelu(self.gate1_(torch.cat((sent, mem_s2v), dim=2))))))
 
         # sent_pad_1 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
         # sent_pad_2 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
         # sent = torch.cat((sent, sent_pad_1[:, :-1], sent_pad_2[:, :-2]), dim=2)
-        # sent = torch.cat((sent, mem_s2v), dim=2)
+        # # sent = torch.cat((sent, sent_pad_1[:, :-1]), dim=2)
+        # sent = torch.cat((sent, mem_s2v_), dim=2)
+        # sent = self.fc1_dense(sent)
 
-        # sent = sent.permute((1, 0, 2))
-        # sent = self.mlm_mtr(sent, src_key_padding_mask=sent_mask)
-        # sent = sent.permute((1, 0, 2))
+        # mem_s2v_ = mem_s2v * torch.tanh(torch.abs(self.gate2(F.gelu(self.gate2_(torch.cat((sent, mem_s2v), dim=2))))))
+        # # sent_pad_1 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
+        # # sent_pad_2 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
+        # # sent = torch.cat((sent, sent_pad_1[:, :-1], sent_pad_2[:, :-2]), dim=2)
+        # sent = torch.cat((sent, mem_s2v_), dim=2)
+        # sent = self.fc2_dense(sent)
 
-        # sent = sent[:, :, 0:self.word_edim]
+        # sent_pad_1 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
+        # sent_pad_2 = torch.cat((torch.zeros_like(sent[:, 0, :].unsqueeze(1)), torch.zeros_like(sent[:, 0, :].unsqueeze(1)), sent), dim=1)
+        # sent = torch.cat((sent, sent_pad_1[:, :-1], sent_pad_2[:, :-2]), dim=2)
+
+        sent = torch.cat((sent, mem_s2v), dim=2)
+        sent = sent.permute((1, 0, 2))
+        sent = self.mlm_mtr(sent, src_key_padding_mask=sent_mask)
+        sent = sent.permute((1, 0, 2))
+        sent = sent[:, :, 0:self.word_edim]
 
         return sent
 
